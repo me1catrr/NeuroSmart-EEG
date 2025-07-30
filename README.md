@@ -45,7 +45,6 @@ Para pruebas, se pueden usar datasets públicos (ej. *PhysioNet EEG*, *BCI Compe
 ---
 
 ## 🔄 Flujo de trabajo del análisis EEG
-
 Raw EEG (.eeg, .vhdr, .vmrk)
 ↓
 Preprocesamiento (Filtros, ICA)
@@ -73,7 +72,7 @@ julia --project=.
 instantiate
 ```
 
-🚀 Pipeline actual
+## 🚀 Pipeline actual
 	•	Preprocesamiento: conversión a µV, re-referenciación, submuestreo, filtrado IIR.
 	•	ICA con revisión semiautomática para artefactos.
 	•	Segmentación en epochs de 1s.
@@ -82,14 +81,14 @@ instantiate
 
 ⸻
 
-🔬 Análisis avanzados
+## 🔬 Análisis avanzados
 	•	Conectividad funcional: Coherencia, PLV, ImCoh.
 	•	Descomposición adaptativa: EMD, CEEMD.
 	•	Comparación grupos: EM-FR vs Control.
 
 ⸻
 
-⚠️ Datos y confidencialidad
+## ⚠️ Datos y confidencialidad
 
 Los datos clínicos NO se suben a este repositorio.
 Solo se incluyen scripts y notebooks para reproducibilidad.
@@ -97,19 +96,19 @@ Para pruebas, se pueden usar datasets públicos (BCI Competition, PhysioNet EEG)
 
 ⸻
 
-🛠 Tecnologías
+## 🛠 Tecnologías
 	•	Lenguaje: Julia 1.x
 	•	Paquetes: DSP.jl, Wavelets.jl, Flux.jl, Plots.jl
 	•	Control de versiones: Git + GitHub (SSH)
 
 ⸻
 
-👥 Equipo
+## 👥 Equipo
 	•	Investigador: Rafael Castro-Triguero
-	•	Colaboradores: Grupo de investigación sobre neurociencia computacional y SHM.
+	•	Colaboradores: Grupo de investigación neurociencia computacional
 
 ⸻
 
-📜 Licencia
+## 📜 Licencia
 
 Este proyecto se distribuye bajo licencia MIT modificada (ver LICENSE).
