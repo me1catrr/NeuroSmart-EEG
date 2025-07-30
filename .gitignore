@@ -1,0 +1,10 @@
+# Evitar subir datos sensibles
+data/*
+!data/README.md   # Mantener solo el archivo informativo
+
+# Otros archivos que no queremos subir
+*.log
+*.tmp
+*.DS_Store
+*.ipynb_checkpoints/
+config/secrets/*
