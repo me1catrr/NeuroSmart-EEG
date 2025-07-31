@@ -16,54 +16,54 @@ Desarrollar un framework reproducible para:
 
 ## 📂 Estructura del proyecto
 
+```
 NeuroSmart-EEG/
 │
-├── data/           # Datos EEG (NO se suben, confidencialidad)
-├── notebooks/      # Análisis exploratorio (Jupyter/Pluto)
-├── src/            # Código modular en Julia
-├── scripts/        # Pipelines ejecutables
-├── config/         # Parámetros y configuración
-├── docs/           # Documentación científica y técnica
-└── tests/          # Pruebas unitarias
+├── data/        # Datos EEG (NO se suben por confidencialidad)
+│   ├── raw/             # Señales EEG crudas (.eeg, .vhdr, .vmrk)
+│   ├── preprocessed/    # Señales tras filtrado y segmentación
+│   ├── features/        # Características extraídas (band power, conectividad)
+│   └── connectivity/    # Métricas funcionales
+│
+├── notebooks/   # Análisis exploratorio (Jupyter/Pluto)
+├── src/         # Código modular en Julia
+│   ├── preprocessing/   # Preprocesamiento, segmentación, artefactos
+│   ├── spectral/        # Análisis espectral (FFT, Wavelets)
+│   ├── connectivity/    # Coherencia, PLV, ImCoh
+│   ├── features/        # Band power, métricas resumen
+│   ├── decomposition/   # ICA, EMD
+│   ├── stats/           # Estadística descriptiva, inferencial
+│   └── utils/           # Utilidades generales
+│
+├── scripts/     # Pipelines ejecutables (ej: run_preprocessing.jl)
+├── config/      # Parámetros de análisis
+├── docs/        # Documentación técnica y científica
+└── tests/       # Pruebas unitarias (Julia Pkg.test)
+```
 
 ### 🔒 **Carpeta data/**
-
-**IMPORTANTE:** Esta carpeta **NO debe contener datos sensibles** en el repositorio público.
-
-#### Estructura esperada:
-
-- `raw/` → Datos EEG originales (.eeg, .vhdr, .vmrk) [EXCLUIDOS del repo]
-- `preprocessed/` → Señales tras filtrado y segmentación
-- `connectivity/` → Resultados de métricas funcionales
-- `features/` → Características espectrales, EMD, etc.
+**IMPORTANTE:** Este proyecto **NO contiene datos sensibles** en el repositorio público. La carpeta data/ no está disponible por confidencialidad.
 
 #### Nota sobre confidencialidad:
-
-Los datos clínicos asociados a este proyecto son **confidenciales** y **no deben ser subidos a GitHub**.  
+Los datos clínicos asociados a este proyecto son **confidenciales** y **no deben ser subidos a GitHub**.
 Para pruebas, se pueden usar datasets públicos (ej. *PhysioNet EEG*, *BCI Competition*).
 
 ---
 
 ## 🔄 Flujo de trabajo del análisis EEG
-Raw EEG (.eeg, .vhdr, .vmrk)
-↓
-Preprocesamiento (Filtros, ICA)
-↓
-Segmentación en epochs
-↓
-Análisis espectral (FFT, Wavelets)
-↓
-Conectividad funcional (Coherencia, PLV, ImCoh)
-↓
-Extracción de features
-↓
-Modelos estadísticos / ML
+1. **Raw EEG** (.eeg, .vhdr, .vmrk)
+2. **Preprocesamiento** (Filtros notch, band-pass, ICA, re-referenciación)
+3. **Segmentación** en epochs (1 s)
+4. **Análisis espectral** (FFT, Wavelets)
+5. **Conectividad funcional** (Coherencia, PLV, ImCoh)
+6. **Extracción de features**
+7. **Modelos estadísticos / Machine Learning**
 
 ---
 
 ## ⚡ Instalación rápida
 
-Clonar el repositorio y activar el entorno:
+Clonar el repositorio y activar el entorno Julia:
 ```bash
 git clone git@github.com:me1catrr/NeuroSmart-EEG.git
 cd NeuroSmart-EEG
@@ -72,43 +72,45 @@ julia --project=.
 instantiate
 ```
 
+---
+
 ## 🚀 Pipeline actual
-	•	Preprocesamiento: conversión a µV, re-referenciación, submuestreo, filtrado IIR.
-	•	ICA con revisión semiautomática para artefactos.
-	•	Segmentación en epochs de 1s.
-	•	Análisis espectral (FFT, Wavelets Morlet).
-	•	Cálculo de potencia absoluta/relativa por bandas clásicas.
+- ✅ Preprocesamiento: conversión a µV, filtrado IIR, notch 50 Hz, submuestreo (512 Hz).
+- ✅ ICA: corrección semiautomática para artefactos.
+- ✅ Segmentación en epochs de 1s.
+- ✅ Análisis espectral: FFT y bandas clásicas (delta, theta, alfa, beta, gamma).
+- ✅ Potencia absoluta y relativa por bandas.
 
-⸻
+Próximos pasos:
+- Análisis avanzado: Wavelets, EMD, CEEMD.
+- Conectividad: Coherencia, PLV.
+- Modelos predictivos: SVM, Random Forest.
 
-## 🔬 Análisis avanzados
-	•	Conectividad funcional: Coherencia, PLV, ImCoh.
-	•	Descomposición adaptativa: EMD, CEEMD.
-	•	Comparación grupos: EM-FR vs Control.
+---
 
-⸻
+## 📊 Justificación técnica
+- **Filtros:** Eliminan artefactos de baja y alta frecuencia y la interferencia eléctrica (50 Hz).
+- **ICA:** Identifica y elimina fuentes independientes (parpadeos, artefactos musculares).
+- **Segmentación:** Necesaria para análisis en ventanas temporales estandarizadas.
+- **FFT:** Base del análisis espectral en neurociencia (potencia por banda).
+- **Conectividad:** Relaciona regiones cerebrales funcionalmente.
+- **Band power:** Indicador de estados cognitivos y patológicos.
 
-## ⚠️ Datos y confidencialidad
-
-Los datos clínicos NO se suben a este repositorio.
-Solo se incluyen scripts y notebooks para reproducibilidad.
-Para pruebas, se pueden usar datasets públicos (BCI Competition, PhysioNet EEG).
-
-⸻
+---
 
 ## 🛠 Tecnologías
-	•	Lenguaje: Julia 1.x
-	•	Paquetes: DSP.jl, Wavelets.jl, Flux.jl, Plots.jl
-	•	Control de versiones: Git + GitHub (SSH)
+- Lenguaje: **Julia 1.x**
+- Paquetes: DSP.jl, Wavelets.jl, Flux.jl, Plots.jl
+- CI/CD: GitHub Actions
+- Control de versiones: Git + GitHub (SSH)
 
-⸻
+---
 
 ## 👥 Equipo
-	•	Investigador: Rafael Castro-Triguero
-	•	Colaboradores: Grupo de investigación neurociencia computacional
+- Investigador: **Rafael Castro-Triguero**
+- Grupo de investigación neurociencia computacional
 
-⸻
+---
 
 ## 📜 Licencia
-
-Este proyecto se distribuye bajo licencia MIT modificada (ver LICENSE).
+Este proyecto se distribuye bajo licencia **MIT modificada** (ver LICENSE).

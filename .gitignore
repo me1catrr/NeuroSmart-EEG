@@ -1,10 +1,40 @@
-# Evitar subir datos sensibles
-data/*
-!data/README.md   # Mantener solo el archivo informativo
+# ======================
+# 1. DATASETS CLÍNICOS
+# ======================
+data/raw/*
+data/preprocessed/*
+data/connectivity/*
+data/features/*
+!data/**/README.md   # Mantener archivos README.md en todas las subcarpetas
 
-# Otros archivos que no queremos subir
+# ======================
+# 2. FORMATOS EEG (BrainVision)
+# ======================
+*.eeg
+*.vhdr
+*.vmrk
+
+# ======================
+# 3. ARCHIVOS BINARIOS DE RESULTADOS
+# ======================
+*.bson
+*.mat
+*.h5
+
+# ======================
+# 4. LOGS Y TEMPORALES
+# ======================
 *.log
 *.tmp
+*.bak
+
+# ======================
+# 5. SISTEMA Y NOTEBOOKS
+# ======================
 *.DS_Store
 *.ipynb_checkpoints/
+
+# ======================
+# 6. CONFIGURACIONES SENSIBLES
+# ======================
 config/secrets/*
