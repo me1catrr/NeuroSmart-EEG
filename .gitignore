@@ -1,6 +1,7 @@
 # ======================
 # 1. DATASETS CLÍNICOS
 # ======================
+data/*
 data/raw/*
 data/preprocessed/*
 data/connectivity/*
