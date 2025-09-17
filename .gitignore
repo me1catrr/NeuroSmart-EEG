@@ -41,4 +41,4 @@
 /config/secrets/**
 /config/local.toml
 .env
-.env.*
+.env.*/NeuroSmart-EEG/
