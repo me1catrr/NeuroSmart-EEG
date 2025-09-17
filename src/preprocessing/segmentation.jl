@@ -1,5 +1,7 @@
 module Segmentation
 
+using Statistics
+
 export segment_eeg, baseline_correct
 
 """
@@ -57,7 +59,7 @@ function baseline_correct(epoch::Matrix{Float64}, fs::Float64; baseline=(0.0, 0.
     idx_start = clamp(Int(round(baseline[1] * fs)) + 1, 1, n_samples)
     idx_end   = clamp(Int(round(baseline[2] * fs)), 1, n_samples)
 
-    correction = mean(epoch[:, idx_start:idx_end], dims=2)
+    correction = Statistics.mean(epoch[:, idx_start:idx_end], dims=2)
     return epoch .- correction
 end
 

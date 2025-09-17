@@ -43,7 +43,7 @@ function compute_band_powers(epochs::Array{Float64, 3}, fs::Float64)
             band_powers = Dict()
             for (band, (fmin, fmax)) in bands
                 idx = findall(f -> f ≥ fmin && f ≤ fmax, freqs)
-                band_powers[band] = mean(psd[idx])
+                band_powers[band] = Statistics.mean(psd[idx])
             end
 
             push!(rows, (

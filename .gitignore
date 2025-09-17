@@ -1,41 +1,44 @@
 # ======================
 # 1. DATASETS CLÍNICOS
 # ======================
-data/*
-data/raw/*
-data/preprocessed/*
-data/connectivity/*
-data/features/*
-!data/**/README.md   # Mantener archivos README.md en todas las subcarpetas
+/data/**                 # ignora TODO bajo data
+!/data/**/               # permite recorrer subcarpetas para poder re-incluir archivos
+!/data/**/README.md      # mantén README.md en cualquier subcarpeta
+!/data/**/.gitkeep       # y .gitkeep para preservar estructura
+
+# Si usarás un dataset DEMO versionado, destápalo (opcional):
+!/data_demo/**
 
 # ======================
 # 2. FORMATOS EEG (BrainVision)
+#    -> Limito el ignore a /data para no bloquear archivos de ejemplo fuera de data_demo
 # ======================
-*.eeg
-*.vhdr
-*.vmrk
+/data/**/*.{eeg,vhdr,vmrk}
 
 # ======================
 # 3. ARCHIVOS BINARIOS DE RESULTADOS
 # ======================
+/outputs/**
+/results/**
+/logs/**
 *.bson
 *.mat
 *.h5
-
-# ======================
-# 4. LOGS Y TEMPORALES
-# ======================
-*.log
 *.tmp
 *.bak
 
 # ======================
-# 5. SISTEMA Y NOTEBOOKS
+# 4. SISTEMA Y NOTEBOOKS
 # ======================
 *.DS_Store
-*.ipynb_checkpoints/
+**/.ipynb_checkpoints/**   # (corrección) patrón correcto para checkpoints de Jupyter
+**/__pycache__/
+*.pyc
 
 # ======================
-# 6. CONFIGURACIONES SENSIBLES
+# 5. CONFIGURACIONES SENSIBLES
 # ======================
-config/secrets/*
+/config/secrets/**
+/config/local.toml
+.env
+.env.*

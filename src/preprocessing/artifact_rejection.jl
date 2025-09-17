@@ -1,3 +1,9 @@
+module ArtifactRejection
+
+using Statistics
+
+export reject_artifacts
+
 """
 reject_artifacts(epochs::Array{Float64, 3}; threshold=70.0)
 
@@ -18,30 +24,31 @@ clean, removed, info = reject_artifacts(epochs; threshold=80.0)
 println(info["porcentaje_rechazado"])
 """
 
-module ArtifactRejection
-
-export reject_artifacts
 
 function reject_artifacts(epochs::Array{Float64, 3}; threshold=70.0)
 
-n_epochs = size(epochs, 3)
-keep = trues(n_epochs)
-removed_epochs = Int[]
+    n_epochs = size(epochs, 3)
+    keep = trues(n_epochs)
+    removed_epochs = Int[]
 
-for i in 1:n_epochs
-    if maximum(abs.(epochs[:, :, i])) > threshold
-        keep[i] = false
-        push!(removed_epochs, i)
+    for i in 1:n_epochs
+        if maximum(abs.(epochs[:, :, i])) > threshold
+            keep[i] = false
+            push!(removed_epochs, i)
+        end
     end
+
+    clean_epochs = epochs[:, :, keep]
+
+    report = Dict(
+        "total_epochs" => n_epochs,
+        "rechazados" => length(removed_epochs),
+        "aceptados" => sum(keep),
+        "porcentaje_rechazado" => round(100 * length(removed_epochs) / n_epochs, digits=2)
+    )
+
+    return clean_epochs, removed_epochs, report
+
 end
 
-clean_epochs = epochs[:, :, keep]
-
-report = Dict(
-    "total_epochs" => n_epochs,
-    "rechazados" => length(removed_epochs),
-    "aceptados" => sum(keep),
-    "porcentaje_rechazado" => round(100 * length(removed_epochs) / n_epochs, digits=2)
-)
-
-return clean_epochs, removed_epochs, report
+end # module

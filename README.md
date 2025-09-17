@@ -1,16 +1,16 @@
 # NeuroSmart-EEG
 
-Plataforma para la **monitorización cerebral basada en EEG** orientada al análisis de **enfermedades neurodegenerativas** y aplicaciones clínicas avanzadas. Este proyecto sigue una estructura modular inspirada en buenas prácticas y en la literatura (*EEG Signal Processing and Machine Learning*).
+Plataforma para la **monitorización cerebral basada en EEG** orientada al análisis de **enfermedades neurodegenerativas** y aplicaciones clínicas avanzadas. Este proyecto sigue una estructura modular inspirada en repositorios similares y en alguna literatura existente al respecto (*EEG Signal Processing and Machine Learning* de *Saeid Sanei*).
 
 ---
 
 ## 🎯 Objetivo
-Desarrollar un framework reproducible para:
+Desarrollar una estructura de rutinas reproducible para:
 - Procesar y analizar señales EEG en contextos clínicos.
-- Implementar métodos clásicos y avanzados (FFT, Wavelets, ICA, EMD, CEEMD).
-- Incorporar métricas de **conectividad funcional** (Coherencia, PLV, ImCoh).
-- Explorar biomarcadores para patologías como **Esclerosis Múltiple**, Alzheimer y Parkinson.
-- Facilitar la transferencia metodológica desde **Structural Health Monitoring (SHM)**.
+- Implementar métodos clásicos y avanzados (FFT, Wavelets, ICA, EMD, CEEMD, etc…).
+- Incorporar métricas de **conectividad funcional** (Coherencia, PLV, ImCoh, etc…).
+- Explorar biomarcadores para patologías como **Esclerosis Múltiple**, **Alzheimer** y **Parkinson**.
+- Facilitar la transferencia metodológica desde disciplinas de la ingeniería como el **Structural Health Monitoring (SHM)**.
 
 ---
 
@@ -107,7 +107,7 @@ Próximos pasos:
 ---
 
 ## 👥 Equipo
-- Investigador: **Rafael Castro-Triguero**
+- Investigadores: **Alejandro Galvao**, **Rafael Castro-Triguero**
 - Grupo de investigación neurociencia computacional
 
 ---

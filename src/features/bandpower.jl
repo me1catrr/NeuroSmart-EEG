@@ -18,6 +18,8 @@ bandpower = compute_band_power(power, freqs, bands)
 
 module BandPower
 
+using Statistics
+
 export compute_band_power
 
 function compute_band_power(power::Matrix{Float64}, freqs::Vector{Float64}, bands::Dict)

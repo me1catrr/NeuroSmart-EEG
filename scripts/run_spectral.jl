@@ -1,8 +1,8 @@
 include("../src/preprocessing/segmentation.jl")
 include("../src/preprocessing/artifact_rejection.jl")
 include("../src/spectral/fft_analysis.jl")
-using BSON, DataFrames, CSV
-using .Segmentation, .ArtifactRejection, .FFTAnalysis
+
+using BSON, DataFrames, CSV, Statistics
 
 raw_dir = "data/preprocessed"
 features_dir = "data/features"
