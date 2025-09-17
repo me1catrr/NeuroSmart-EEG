@@ -42,3 +42,7 @@
 /config/local.toml
 .env
 .env.*/NeuroSmart-EEG/
+
+# macOS
+.DS_Store
+**/.DS_Store
