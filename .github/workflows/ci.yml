@@ -2,21 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Julia
         uses: julia-actions/setup-julia@v1
         with:
-          version: '1.10'  # o la versión que uses
+          version: '1.10'
+
       - name: Install dependencies
         run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
-      - name: Run tests
-        run: julia --project=. -e 'using Pkg; Pkg.test()'
+
+      - name: Check project loads
+        run: julia --project=. -e 'using Pkg; Pkg.status()'

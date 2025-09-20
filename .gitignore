@@ -1,48 +1,33 @@
-# ======================
-# 1. DATASETS CLÍNICOS
-# ======================
-/data/**                 # ignora TODO bajo data
-!/data/**/               # permite recorrer subcarpetas para poder re-incluir archivos
-!/data/**/README.md      # mantén README.md en cualquier subcarpeta
-!/data/**/.gitkeep       # y .gitkeep para preservar estructura
+# =========================
+# 1. Datos locales (no subir)
+# =========================
+config/
+sourcedata/
+bids/
+derivatives/
 
-# Si usarás un dataset DEMO versionado, destápalo (opcional):
-!/data_demo/**
+# =========================
+# 2. Formatos EEG (BrainVision y similares)
+# =========================
+*.eeg
+*.vhdr
+*.vmrk
+*.ehst2
+*.hfinf2
 
-# ======================
-# 2. FORMATOS EEG (BrainVision)
-#    -> Limito el ignore a /data para no bloquear archivos de ejemplo fuera de data_demo
-# ======================
-/data/**/*.{eeg,vhdr,vmrk}
-
-# ======================
-# 3. ARCHIVOS BINARIOS DE RESULTADOS
-# ======================
-/outputs/**
-/results/**
-/logs/**
-*.bson
+# =========================
+# 3. Archivos pesados/resultados
+# =========================
 *.mat
 *.h5
+*.bson
 *.tmp
 *.bak
+*.log
 
-# ======================
-# 4. SISTEMA Y NOTEBOOKS
-# ======================
-*.DS_Store
-**/.ipynb_checkpoints/**   # (corrección) patrón correcto para checkpoints de Jupyter
-**/__pycache__/
-*.pyc
-
-# ======================
-# 5. CONFIGURACIONES SENSIBLES
-# ======================
-/config/secrets/**
-/config/local.toml
-.env
-.env.*/NeuroSmart-EEG/
-
-# macOS
+# =========================
+# 4. Archivos de sistema/editores
+# =========================
 .DS_Store
-**/.DS_Store
+.vscode/
+.idea/
