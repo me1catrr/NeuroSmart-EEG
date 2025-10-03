@@ -1,21 +1,25 @@
 name = "NeuroSmartEEG"
 uuid = "b4b5d3de-1234-5678-90ab-123456789abc"
 authors = ["Rafael Castro-Triguero <me1catrr@uco.es>"]
-version = "0.2.0"   # sube menor al reestructurar repo
+version = "0.2.0"
 
 [deps]
 ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-Glob = "c27321d9-0574-5035-807b-f59d2c89b15c"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+EDF = "ccffbfc1-f56e-50fb-a33b-53d1781b2825"
 FilePathsBase = "48062228-2e41-5def-b9a4-89aafe57970f"
+GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
+Glob = "c27321d9-0574-5035-807b-f59d2c89b15c"
+IniFile = "83e8ac13-25f8-5344-8a64-a9f2b223428f"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 
 [compat]
-julia = "1.10"
 ArgParse = "1"
 CSV = "0.10"
 DataFrames = "1"
-Glob = "1"
 FilePathsBase = "0.9"
+Glob = "1"
 JSON3 = "1"
+julia = "1.10"

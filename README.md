@@ -2,7 +2,29 @@
 
 Repositorio en **Julia** para organizar y analizar señales EEG en el contexto de enfermedades neurodegenerativas (como **Esclerosis Múltiple**) siguiendo el estándar **BIDS (Brain Imaging Data Structure)**.  
 
-👉 **Importante:** este repositorio **no contiene datos EEG**. Solo incluye **código, configuraciones y plantillas**.  
+👉 **Importante:** este repositorio **no contiene datos EEG**. Solo incluye **código, configuraciones y plantillas**.
+
+## 🔬 Información Técnica de Adquisición
+
+### Sistema de Grabación EEG
+- **Amplificador**: actiCHamp Base Unit (5001) + módulo 32 CH
+- **Software**: BrainVision Recorder Professional v. 1.21.0303
+- **Formato**: Brain Vision Data Exchange Header File v1.0
+
+### Parámetros de Grabación
+- **Canales**: 31 electrodos (sistema 10-20 internacional)
+- **Frecuencia de muestreo**: 500 Hz
+- **Resolución**: 0.0488281 µV por unidad digital
+- **Duración**: 3-5 minutos por condición (ojos abiertos/cerrados)
+- **Filtros hardware**: DC-140 Hz
+- **Filtros software**: 0.63-70 Hz + notch 50 Hz
+
+### Dataset
+- **Sujetos**: 77 participantes
+- **Sesiones**: 106 totales (44 completas, 62 parciales)
+- **Condiciones**: ojos abiertos, ojos cerrados, tarea desconocida
+
+📋 Para información técnica detallada, ver `bids/dataset_description.json`  
 
 ---
 
@@ -42,6 +64,37 @@ julia --project=.
 3. Usar los scripts de `scripts/` para convertir y analizar en formato **BIDS**.  
 
 ---
+
+## 🛠️ Scripts Disponibles
+
+### Conversión y Organización
+- `scripts/build_participants.jl` - Genera `participants.tsv` y `participants.json`
+- `scripts/build_eeg_bids.jl` - Convierte archivos BrainVision a formato BIDS
+- `scripts/validate_bids.jl` - Valida la estructura BIDS del dataset
+
+### Análisis y Visualización
+- `scripts/plot_raw_traces.jl` - Genera visualizaciones de trazas EEG sin procesar
+  - Crea plots de control de calidad
+  - Genera layout de electrodos
+  - Incluye información demográfica en títulos
+
+## 📊 Control de Calidad
+
+El script `plot_raw_traces.jl` genera automáticamente:
+- **Plots de trazas**: 10 segundos iniciales de cada registro
+- **Layout de electrodos**: Visualización del montaje 10-20
+- **Reporte de calidad**: Resumen del procesamiento
+- **Metadatos**: Información demográfica (sexo, edad, grupo)
+
+## 🔧 Dependencias
+
+El proyecto utiliza las siguientes librerías de Julia:
+- `GLMakie` - Visualización
+- `DataFrames` - Manipulación de datos
+- `CSV` - Lectura de archivos tabulares
+- `JSON3` - Procesamiento JSON
+- `IniFile` - Lectura de archivos .vhdr
+- `EDF` - Soporte para archivos EDF (opcional)
 
 ## 📜 Licencia
 

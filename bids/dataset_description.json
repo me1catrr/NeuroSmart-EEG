@@ -1,0 +1,115 @@
+{
+    "Name": "NeuroSmart-EEG",
+    "BIDSVersion": "1.8.0",
+    "DatasetType": "raw",
+    "License": "CC0",
+    "Authors": [
+        "NeuroSmart Research Team"
+    ],
+    "Acknowledgements": "We thank all participants for their contribution to this study.",
+    "HowToAcknowledge": "Please cite this dataset if you use it in your research.",
+    "Funding": [
+        "This study was supported by [funding information]"
+    ],
+    "ReferencesAndLinks": [
+        "https://github.com/NeuroSmart-EEG/NeuroSmart-EEG"
+    ],
+    "DatasetDOI": "10.5281/zenodo.XXXXXXX",
+    "EthicsApprovals": [
+        "This study was approved by the [Institution] Ethics Committee"
+    ],
+    "GeneratedBy": [
+        {
+            "Name": "build_participants.jl",
+            "Version": "1.0.0",
+            "Description": "Julia script for generating participants.tsv and participants.json"
+        },
+        {
+            "Name": "build_eeg_bids.jl", 
+            "Version": "1.0.0",
+            "Description": "Julia script for converting BrainVision files to BIDS format"
+        }
+    ],
+    "SourceDatasets": [
+        {
+            "DOI": "",
+            "URL": "https://github.com/NeuroSmart-EEG/NeuroSmart-EEG",
+            "Version": "1.0.0"
+        }
+    ],
+    "AcquisitionInformation": {
+        "EEGAcquisitionSystem": {
+            "Hardware": {
+                "Amplifier": "actiCHamp Base Unit (5001) - S/N 16080673",
+                "Module": "actiCHamp 32 CH - S/N 16091350",
+                "FirmwareVersions": {
+                    "DLL": "25.17.04.28",
+                    "Driver": "03.04.01.146",
+                    "Control": "101.15.05.28",
+                    "FPGA": "48.00.00.00",
+                    "FPGA-C": "45.00.00.00",
+                    "DSP": "105.14.10.07"
+                }
+            },
+            "Software": {
+                "RecordingSoftware": "BrainVision Recorder Professional v. 1.21.0303",
+                "FileFormat": "Brain Vision Data Exchange Header File Version 1.0"
+            },
+            "RecordingParameters": {
+                "NumberOfChannels": 31,
+                "SamplingInterval": "2000 µs",
+                "SamplingFrequency": "500 Hz",
+                "DataFormat": "IEEE_FLOAT_32",
+                "AmplifierResolution": "0.0488281 µV per digital unit",
+                "RecordingDuration": "3-5 minutes per condition (eyes open/closed)",
+                "ElectrodeSystem": "10-20 international system",
+                "ElectrodeLabels": [
+                    "Fz", "F3", "F7", "FT9", "FC5", "FC1", "C3", "T7", "TP9", "CP5", "CP1",
+                    "Pz", "P3", "P7", "O1", "Oz", "O2", "P4", "P8", "TP10", "CP6", "CP2",
+                    "Cz", "C4", "T8", "FT10", "FC6", "FC2", "F4", "F8", "Fp2"
+                ]
+            },
+            "Filtering": {
+                "HardwareFilters": {
+                    "HighPass": "DC (no cutoff)",
+                    "LowPass": "140 Hz",
+                    "Notch": "Disabled"
+                },
+                "SoftwareFilters": {
+                    "HighPass": "1.59 s (≈0.63 Hz)",
+                    "LowPass": "70 Hz",
+                    "Notch": "50 Hz (power line interference removal)"
+                }
+            },
+            "ElectricalConfiguration": {
+                "ReferenceChannel": "REF (physical channel 2)",
+                "ImpedanceRange": {
+                    "Acceptable": "10-50 kΩ",
+                    "Good": "≤ 10 kΩ",
+                    "Poor": "≥ 50 kΩ"
+                },
+                "GroundChannel": "Gnd"
+            }
+        },
+        "DatasetSummary": {
+            "TotalSubjects": 77,
+            "TotalSessions": 106,
+            "CompleteSessions": 44,
+            "PartialSessions": 62,
+            "IncompleteSessions": 0,
+            "MissingExtras": "ehst2, hfinf2"
+        },
+        "ProcessingNotes": {
+            "PlannedAnalysis": [
+                "Time domain signal representations",
+                "Time-frequency analysis (STFT / windowed Fourier)",
+                "Wavelet Transform (WT) for multi-resolution analysis"
+            ],
+            "QualityNotes": [
+                "Most electrodes show acceptable impedance range (10-30 kΩ)",
+                "Some posterior electrodes (Oz, O2) show higher impedances",
+                "Recommended optimization of electrode preparation in occipital region"
+            ]
+        }
+    }
+}
