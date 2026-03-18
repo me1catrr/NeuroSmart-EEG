@@ -461,8 +461,13 @@ md"### Tabla de electrodos (name, x, y, z, type)"
 
 # ╔═╡ c62af5d5-c30d-44b7-a067-e01bbdc5e835
 begin
-	electrodes = CSV.read("../data/electrodes/sub-M05_ses-T2_electrodes.tsv",
-                      DataFrame; delim='\t')
+	electrodes_path = joinpath(@__DIR__, "..", "data", "electrodes", "sub-M05_ses-T2_electrodes.tsv")
+	electrodes = if isfile(electrodes_path)
+		CSV.read(electrodes_path, DataFrame; delim = '\t')
+	else
+		@warn "No se encontró electrodes.tsv; usando tabla vacía (modo público/export)." electrodes_path
+		DataFrame(name = String[], x = Float64[], y = Float64[], z = Float64[], type = String[])
+	end
 
 	electrodes
 end
@@ -617,7 +622,19 @@ dir_raw = joinpath(@__DIR__, "..", "data", "raw", "sub-M05_ses-T2_task-eyesclose
 
 # Leer el archivo TSV como DataFrame
 # CSV.read carga el archivo y lo convierte en una estructura tabular
-data_raw = CSV.read(dir_raw, DataFrame)   
+data_raw = if isfile(dir_raw)
+	CSV.read(dir_raw, DataFrame)
+else
+	@warn "No se encontró el TSV raw; usando datos demo (modo público/export)." dir_raw
+	n = 2000
+	t = range(0, step = 1 / 500, length = n)
+	DataFrame(
+		Channel = ["Cz", "Pz", "Fz", "Oz"],
+		[Symbol("s$(i)") => [sin(2π * 10 * t[i]) + 0.05randn(), sin(2π * 8 * t[i]) + 0.05randn(),
+		                    sin(2π * 12 * t[i]) + 0.05randn(), sin(2π * 6 * t[i]) + 0.05randn()]
+		 for i in 1:n]...,
+	)
+end
 
 println("✓ Archivo cargado: $(basename(dir_raw))")
 println("✓ Dimensiones: $(size(data_raw, 1)) canales × $(size(data_raw, 2) - 1) muestras")
@@ -2140,7 +2157,18 @@ path_dict_ica = joinpath(dir_ica, "dict_EEG_ICA.bin")
 path_dict_lowpass = joinpath(dir_filtering, "dict_EEG_Lowpass.bin")
 
 # Cargar diccionario con señales por canal
-dict_EEG_filtered = Serialization.deserialize(path_dict_lowpass)
+dict_EEG_filtered = if isfile(path_dict_lowpass)
+	Serialization.deserialize(path_dict_lowpass)
+else
+	@warn "No se encontró dict_EEG_Lowpass.bin; generando dict demo desde data_raw (modo público/export)." path_dict_lowpass
+	if @isdefined(data_raw) && nrow(data_raw) > 0 && (size(data_raw, 2) > 1)
+		chans = Vector{String}(data_raw.Channel)
+		mat = Matrix(data_raw[:, Not(:Channel)])
+		Dict(chans[i] => vec(mat[i, :]) for i in 1:length(chans))
+	else
+		Dict("Cz" => randn(2000), "Pz" => randn(2000), "Fz" => randn(2000), "Oz" => randn(2000))
+	end
+end
 
 println("✓ Archivo: $(basename(path_dict_lowpass))")
 println()
