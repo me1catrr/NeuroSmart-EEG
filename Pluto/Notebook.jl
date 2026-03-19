@@ -35,10 +35,11 @@ end
 
 # ╔═╡ 1c2137c1-9117-405f-97dd-d2392fcc5911
 md"""
-**Packages input**
+## PAQUETES CARGADOS
 """
 
 # ╔═╡ f36b8ac2-d883-4d32-a7dc-2072e987165d
+#=
 begin
 # 1) Montaje base
 montage = PyMNE.channels.make_standard_montage("standard_1020")
@@ -77,19 +78,22 @@ plot_topoplot(
     axis = (; xlabel = "")
 )
 end
+=#
 
 # ╔═╡ a73289ad-5d2c-4452-b19e-8a0ef3e42836
+#=
 begin
 	x = 0:0.01:10
 	y = sin.(x)
-	
+
 	fig = Figure()
 	ax = Axis(fig[1,1], xlabel="x", ylabel="sin(x)")
-	
+
 	lines!(ax, x, y)
-	
+
 	fig
 end
+=#
 
 # ╔═╡ fb6880f3-5181-4299-af69-2675820284ca
 md"""
@@ -461,7 +465,8 @@ md"### Tabla de electrodos (name, x, y, z, type)"
 
 # ╔═╡ c62af5d5-c30d-44b7-a067-e01bbdc5e835
 begin
-	electrodes_path = joinpath(@__DIR__, "..", "data", "electrodes", "sub-M05_ses-T2_electrodes.tsv")
+	include(joinpath(@__DIR__, "..", "src", "modules", "paths.jl"))
+	electrodes_path = joinpath(electrodes_dir(), "sub-M05_ses-T2_electrodes.tsv")
 	electrodes = if isfile(electrodes_path)
 		CSV.read(electrodes_path, DataFrame; delim = '\t')
 	else
@@ -530,33 +535,51 @@ EEG_Julia/
 ├── config/
 │   └── default_config.jl    # Configuración: rutas, filtros, ICA, segmentación, FFT
 ├── script/
-│   └── EEG.jl               # Punto de entrada (carga config + IO)
+│   └── EEG.jl               # Punto de entrada del pipeline
 ├── src/
-│   ├── IO.jl                # Carga de datos raw y preprocesamiento inicial
-│   ├── filtering.jl         # Filtrado (notch, bandreject, highpass, lowpass)
-│   ├── ICA.jl               # Descomposición ICA (FastICA)
-│   ├── ICA_cleaning.jl      # Evaluación y eliminación de componentes artefactuales
-│   ├── segmentation.jl      # Segmentación en épocas
-│   ├── baseline.jl          # 1ª corrección de baseline
-│   ├── artifact_rejection.jl # Rechazo de artefactos por amplitud
-│   ├── baseline_2st.jl      # 2ª corrección de baseline
-│   ├── FFT.jl               # Análisis espectral (FFT, potencia por bandas)
+│   ├── BIDS/
+│   │   ├── build_participants.jl
+│   │   ├── build_eeg_bids.jl
+│   │   └── validate_bids.jl
+│   ├── Preprocessing/
+│   │   ├── IO.jl
+│   │   └── filtering.jl
+│   ├── Processing/
+│   │   ├── ICA.jl
+│   │   ├── ICA_cleaning.jl
+│   │   ├── segmentation.jl
+│   │   ├── baseline.jl
+│   │   ├── artifact_rejection.jl
+│   │   ├── baseline_2st.jl
+│   │   └── FFT.jl
 │   └── Connectivity/
-│       ├── CSD.jl           # Current Source Density (spline esférico Perrin)
-│       └── wPLI.jl          # Weighted Phase Lag Index por bandas
+│       ├── CSD.jl
+│       └── wPLI.jl
+│   └── modules/
+│       ├── EEG_Julia.jl      # Módulo principal
+│       ├── paths.jl          # Utilidades de rutas centralizadas
+│       └── utils.jl          # Utilidades comunes (logs, I/O, etc.)
+├── Pluto/
+│   ├── Notebook.jl           # Notebook global
+│   ├── _template_base.jl     # Plantilla base compartida
+│   ├── BIDS/
+│   │   └── BIDS.jl
+│   ├── Preprocessing/
+│   │   └── Preprocessing.jl
+│   ├── Processing/
+│   │   └── Processing.jl
+│   └── Connectivity/
+│       └── Connectivity.jl
 ├── data/
-│   ├── raw/                 # Datos EEG en TSV + metadata + electrodos
-│   ├── IO/                  # Salida del paso de carga
-│   ├── filtering/           # Salidas de cada filtro
-│   ├── ICA/                 # Resultados ICA y datos limpios
-│   ├── segmentation/        # Hipermatriz segmentada
-│   ├── baseline/            # Datos tras 1ª y 2ª baseline
-│   ├── artifact_rejection/  # Segmentos tras rechazo de artefactos
-│   └── (CSD, etc. según módulos)
+│   ├── BIDS/                 # Dataset BIDS y metadatos
+│   ├── Preprocessing/        # Salidas de IO y filtering
+│   ├── Processing/           # Salidas ICA, segmentación, baseline, FFT
+│   └── Connectivity/         # Salidas CSD y wPLI
 ├── results/
-│   ├── figures/             # Gráficos (PSD, ICA, CSD, wPLI, etc.)
-│   ├── tables/              # CSV y tablas (FFT, wPLI, estadísticas)
-│   └── logs/                # Logs por fecha (CSD, wPLI, etc.)
+│   ├── BIDS/
+│   ├── Preprocessing/
+│   ├── Processing/
+│   └── Connectivity/
 ├── Project.toml
 ├── Manifest.toml
 └── README.md

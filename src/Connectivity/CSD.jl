@@ -57,23 +57,22 @@ using CairoMakie: Figure, Axis, scatter!, lines!, text!, Colorbar, barplot!,
 #       para llegar a la raíz del proyecto
 
 # Rutas de entrada: datos después del 2º baseline correction
-dir_baseline = joinpath(@__DIR__, "..", "..", "data", "baseline")
+dir_baseline = stage_dir(:baseline)
 path_dict_2nd_baseline = joinpath(dir_baseline, "dict_2nd_baseline_correction.bin")
 
 # Rutas de entrada: información de posiciones de electrodos
-dir_electrodes = joinpath(@__DIR__, "..", "..", "data", "electrodes")
+dir_electrodes = electrodes_dir()
 electrode_tsv  = joinpath(dir_electrodes, "sub-M05_ses-T2_electrodes.tsv")
 
 # Rutas de salida: datos procesados con CSD
-dir_csd      = joinpath(@__DIR__, "..", "..", "data", "CSD")
+dir_csd      = stage_dir(:CSD)
 out_eeg_path = joinpath(dir_csd, "eeg_csd.bin")      # Datos EEG transformados
 out_dict_path = joinpath(dir_csd, "dict_csd.bin")    # Metadatos y diccionario completo
 
 # Rutas de salida: logs y resultados
-dir_results = joinpath(@__DIR__, "..", "..", "results")
-dir_logs    = joinpath(dir_results, "logs", "CSD")      # Archivos de log
-dir_tables  = joinpath(dir_results, "tables", "CSD")   # Tablas de resultados
-dir_figures = joinpath(dir_results, "figures", "CSD")    # Figuras y visualizaciones
+dir_logs    = stage_dir(:CSD; kind = :logs)      # Archivos de log
+dir_tables  = stage_dir(:CSD; kind = :tables)    # Tablas de resultados
+dir_figures = stage_dir(:CSD; kind = :figures)   # Figuras y visualizaciones
 
 # ------------------------------------------------------------------------------------
 # 2. LIMPIEZA DE RESULTADOS PREVIOS

@@ -53,7 +53,7 @@ println()
 
 # Cargar datos desde el paso anterior (ICA cleaning)
 # Estos datos ya están libres de artefactos y listos para segmentar
-dir_ica_cleaning = joinpath(@__DIR__, "..", "data", "ICA")
+dir_ica_cleaning = stage_dir(:ICA)
 path_dict_ica_cleaning = joinpath(dir_ica_cleaning, "dict_EEG_ICA_clean.bin")
 dict_EEG_ICA_clean = Serialization.deserialize(path_dict_ica_cleaning)
 
@@ -306,7 +306,7 @@ println("💾 GUARDANDO RESULTADOS")
 println("-" ^ 80)
 
 # Crear directorio de segmentación si no existe
-dir_segmentation = joinpath(@__DIR__, "..", "data", "segmentation")
+dir_segmentation = stage_dir(:segmentation)
 if !isdir(dir_segmentation)
     mkpath(dir_segmentation)
     println("  ✓ Directorio creado: $dir_segmentation")

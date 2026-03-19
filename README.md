@@ -10,6 +10,7 @@ Pipeline de análisis de señales EEG en **Julia** para el proyecto BRAIN (Inves
 ## Instalación
 
 1. Clona o abre el proyecto y entra en su directorio:
+
    ```bash
    cd EEG_Julia
    ```
@@ -17,64 +18,98 @@ Pipeline de análisis de señales EEG en **Julia** para el proyecto BRAIN (Inves
 2. Instala dependencias en el entorno del proyecto:
 
    - Opción A (una línea):
+
      ```bash
      julia --project=. -e 'using Pkg; Pkg.instantiate()'
      ```
 
    - Opción B (REPL):
-   ```bash
-   julia --project=.
-   ]
-   instantiate
-   backspace
-   ```
+
+     ```bash
+     julia --project=.
+     ]
+     instantiate
+     backspace
+     ```
 
    - Opción C (desde un script Julia):
-   ```julia
-   using Pkg
-   Pkg.activate(".")
-   Pkg.instantiate()
-   ```
+
+     ```julia
+     using Pkg
+     Pkg.activate(".")
+     Pkg.instantiate()
+     ```
 
 ## Estructura del proyecto
 
-```
+```text
 EEG_Julia/
 ├── config/
 │   └── default_config.jl     # Configuración tipada del pipeline (PipelineConfig)
 ├── Pluto/
-│   └── IO.jl                 # Notebook Pluto (documentación/ejecución interactiva)
+│   ├── EEG_Pipeline.jl       # Notebook Pluto (pipeline completo interactivo)
+│   └── Notebook.jl           # Notebook auxiliar
 ├── script/
 │   └── EEG.jl                # Punto de entrada (pipeline completo, secuencial)
 ├── src/
-│   ├── EEG_Julia.jl          # Módulo principal: incluye etapas + exporta `run_*`
-│   ├── paths.jl              # Utilidades de rutas (project_root, stage_dir, etc.)
-│   ├── utils.jl              # Utilidades (ensure_dir, logs, save/load bin, etc.)
-│   ├── IO.jl                 # Etapa IO (carga raw, PSD, calidad de canales, guardado binario)
-│   ├── filtering.jl          # Etapa filtrado (notch, bandreject, highpass, lowpass)
-│   ├── ICA.jl                # Etapa ICA
-│   ├── ICA_cleaning.jl       # Limpieza de ICs y reconstrucción
-│   ├── segmentation.jl       # Segmentación en épocas
-│   ├── baseline.jl           # 1ª corrección de baseline
-│   ├── artifact_rejection.jl # Rechazo de artefactos por amplitud
-│   ├── baseline_2st.jl       # 2ª corrección de baseline
-│   ├── FFT.jl                # Análisis espectral (FFT, potencia por bandas)
-│   └── Connectivity/
+│   ├── BIDS/
+│   │   ├── build_participants.jl
+│   │   ├── build_eeg_bids.jl
+│   │   └── validate_bids.jl
+│   ├── Preprocessing/
+│   │   ├── IO.jl             # Carga inicial/preprocesamiento de datos EEG
+│   │   └── filtering.jl      # Filtrado (notch, bandreject, highpass, lowpass)
+│   ├── Processing/
+│   │   ├── ICA.jl
+│   │   ├── ICA_cleaning.jl
+│   │   ├── segmentation.jl
+│   │   ├── baseline.jl
+│   │   ├── artifact_rejection.jl
+│   │   ├── baseline_2st.jl
+│   │   └── FFT.jl
+│   ├── Connectivity/
 │       ├── CSD.jl            # Current Source Density (spline esférico Perrin)
 │       └── wPLI.jl           # Weighted Phase Lag Index por bandas
+│   └── modules/
+│       ├── EEG_Julia.jl      # Módulo principal: incluye etapas + exporta `run_*`
+│       ├── paths.jl          # Utilidades de rutas (project_root, stage_dir, etc.)
+│       └── utils.jl          # Utilidades comunes (logs, binarios, limpieza)
 ├── data/
-│   ├── raw/                 # Datos EEG en TSV + metadata + electrodos
-│   ├── IO/                  # Salida del paso de carga
-│   ├── filtering/           # Salidas de cada filtro
-│   ├── ICA/                 # Resultados ICA y datos limpios
-│   ├── segmentation/        # Hipermatriz segmentada
-│   ├── baseline/            # Datos tras 1ª y 2ª baseline
-│   ├── artifact_rejection/  # Segmentos tras rechazo de artefactos
-│   └── (CSD, etc. según módulos)
+│   ├── raw/                          # Entrada principal EEG (TSV/derivados iniciales)
+│   ├── electrodes/                   # Posiciones de electrodos (TSV)
+│   ├── BIDS/                         # Salidas de conversión/validación BIDS
+│   ├── Preprocessing/
+│   │   ├── IO/                       # Salida de carga inicial
+│   │   └── filtering/                # Salidas de filtrado
+│   ├── Processing/
+│   │   ├── ICA/
+│   │   ├── segmentation/
+│   │   ├── baseline/
+│   │   ├── artifact_rejection/
+│   │   └── FFT/
+│   └── Connectivity/
+│       ├── CSD/
+│       └── wPLI/
 ├── results/
-│   ├── figures/             # Gráficos (PSD, ICA, CSD, wPLI, etc.)
-│   ├── tables/              # CSV y tablas (FFT, wPLI, estadísticas)
-│   └── logs/                # Logs por fecha (CSD, wPLI, etc.)
+│   ├── BIDS/
+│   │   ├── figures/
+│   │   ├── logs/
+│   │   └── tables/
+│   ├── Preprocessing/
+│   │   ├── figures/
+│   │   ├── logs/
+│   │   └── tables/
+│   ├── Processing/
+│   │   ├── figures/
+│   │   ├── logs/
+│   │   └── tables/
+│   └── Connectivity/
+│       ├── figures/
+│       ├── logs/
+│       └── tables/
+├── docs/
+│   ├── index.html            # Sitio estático publicado en GitHub Pages
+│   └── .nojekyll             # Evita procesamiento Jekyll en Pages
 ├── Project.toml
 ├── Manifest.toml
 └── README.md
@@ -89,23 +124,32 @@ Por tratarse de un proyecto de **EEG/medicina**, este repositorio **NO incluye**
 
 Para ejecutar el pipeline necesitarás proporcionar tus propios archivos de entrada en `data/raw/` (y, si aplica, `data/electrodes/`) en tu entorno local.
 
+## Publicación en GitHub Pages
+
+La carpeta `docs/` se mantiene porque se publica en GitHub Pages.
+
+- `docs/index.html`: página estática a servir.
+- `docs/.nojekyll`: evita que GitHub Pages aplique Jekyll sobre el contenido.
+- En la configuración del repositorio, la fuente de Pages debe apuntar a la carpeta `docs/` de la rama publicada.
+
 ## Flujo del pipeline
 
-El procesamiento sigue un orden secuencial; cada etapa lee la salida de la anterior. El módulo `src/EEG_Julia.jl` expone funciones de alto nivel `run_*` para ejecutar etapas individualmente (REPL/Pluto) o en un flujo completo (vía `script/EEG.jl`).
+El procesamiento sigue un orden secuencial; cada etapa lee la salida de la anterior. El módulo `src/modules/EEG_Julia.jl` expone funciones de alto nivel `run_*` para ejecutar etapas individualmente (REPL/Pluto) o en un flujo completo (vía `script/EEG.jl`).
 
-| Orden | Módulo               | Descripción breve |
-|------:|----------------------|-------------------|
-| 1     | **IO**               | Carga TSV raw, organiza canales (diccionario), PSD, calidad de canales. |
-| 2     | **filtering**        | Notch 50 Hz, bandreject ~100 Hz, highpass 0.5 Hz, lowpass 150 Hz (Butterworth, filtfilt). |
-| 3     | **ICA**              | FastICA simétrico sobre datos filtrados; guarda componentes y matrices de mezcla. |
-| 4     | **ICA_cleaning**     | Evaluación automática de ICs (features/scores), eliminación de artefactos, reconstrucción. |
-| 5     | **segmentation**     | División en segmentos de longitud fija (ej. 1 s), sin solapamiento; hipermatriz 3D. |
-| 6     | **baseline**         | 1ª corrección de baseline por segmento (intervalo 0–0.1 s). |
-| 7     | **artifact_rejection** | Rechazo de épocas por umbral de amplitud (±70 µV). |
-| 8     | **baseline_2st**     | 2ª corrección de baseline (mismo intervalo). |
-| 9     | **FFT**              | FFT, ventana Hamming, zero-padding; potencia espectral y por bandas (Delta–Gamma). |
-| 10    | **CSD**              | Current Source Density (Laplaciano esférico Perrin) sobre datos segmentados. |
-| 11    | **wPLI**             | Conectividad wPLI por bandas de frecuencia (entrada: datos CSD). |
+Antes del pipeline principal, el proyecto incluye utilidades en `src/BIDS/` para convertir datos originales de BrainVision a una estructura BIDS (`build_participants.jl`, `build_eeg_bids.jl`, `validate_bids.jl`).
+
+1. **BIDS (preparación opcional)**: Conversión/validación desde BrainVision hacia estructura BIDS.
+2. **IO**: Carga TSV raw, organiza canales (diccionario), PSD, calidad de canales.
+3. **filtering**: Notch 50 Hz, bandreject ~100 Hz, highpass 0.5 Hz, lowpass 150 Hz (Butterworth, filtfilt).
+4. **ICA**: FastICA simétrico sobre datos filtrados; guarda componentes y matrices de mezcla.
+5. **ICA_cleaning**: Evaluación automática de ICs (features/scores), eliminación de artefactos, reconstrucción.
+6. **segmentation**: División en segmentos de longitud fija (ej. 1 s), sin solapamiento; hipermatriz 3D.
+7. **baseline**: 1ª corrección de baseline por segmento (intervalo 0–0.1 s).
+8. **artifact_rejection**: Rechazo de épocas por umbral de amplitud (±70 µV).
+9. **baseline_2st**: 2ª corrección de baseline (mismo intervalo).
+10. **FFT**: FFT, ventana Hamming, zero-padding; potencia espectral y por bandas (Delta–Gamma).
+11. **CSD**: Current Source Density (Laplaciano esférico Perrin) sobre datos segmentados.
+12. **wPLI**: Conectividad wPLI por bandas de frecuencia (entrada: datos CSD).
 
 Los datos intermedios se guardan en `data/` (p. ej. `.bin` serializados); figuras y tablas en `results/figures/` y `results/tables/`.
 
@@ -122,31 +166,34 @@ La configuración central está en **`config/default_config.jl`** y es **tipada*
   - `artifact` (`amp_min`, `amp_max`)
   - `fft` (`pad_to`, `window`, `full_spectrum`)
 
-Además, `src/paths.jl` proporciona utilidades para construir rutas sin hardcodear strings por todo el proyecto:
+Además, `src/modules/paths.jl` proporciona utilidades para construir rutas sin hardcodear strings por todo el proyecto:
 
 - `project_root()`, `data_root(cfg)`, `results_root(cfg)`
-- `stage_dir(:IO; kind=:data, cfg)`, `stage_dir(:FFT; kind=:figures, cfg)`, etc.
+- `stage_dir(:IO; kind=:data, cfg)` -> `data/Preprocessing/IO`
+- `stage_dir(:FFT; kind=:figures, cfg)` -> `results/Processing/figures/FFT`
 - `raw_dir(cfg)`, `electrodes_dir(cfg)`
 
 ## Cómo ejecutar
 
 - **Pipeline completo (recomendado)**  
   Desde la raíz del proyecto:
+
   ```bash
   julia script/EEG.jl
   ```
+
   Este script:
   - activa el entorno del proyecto (`Pkg.activate(...)`)
   - instancia dependencias (`Pkg.instantiate()`)
   - carga `config/default_config.jl`
-  - carga el módulo `src/EEG_Julia.jl`
+  - carga el módulo `src/modules/EEG_Julia.jl`
   - ejecuta secuencialmente `run_io(cfg)`, `run_filtering(cfg)`, ..., `run_wpli(cfg)`
 
 - **Ejecutar una etapa suelta (REPL / Pluto / `-e`)**  
   La forma robusta es cargar la config y el módulo, y luego llamar a la etapa:
 
   ```bash
-  julia --project=. -e 'include("config/default_config.jl"); using .DefaultConfig; include("src/EEG_Julia.jl"); using .EEG_Julia; run_io(DEFAULT_CONFIG)'
+  julia --project=. -e 'include("config/default_config.jl"); using .DefaultConfig; include("src/modules/EEG_Julia.jl"); using .EEG_Julia; run_io(DEFAULT_CONFIG)'
   ```
 
   Cambia `run_io` por `run_filtering`, `run_ica`, `run_fft`, etc.

@@ -113,7 +113,7 @@ println("  Preliminares: Métricas cuantitativas (datos de dict_EEG_Lowpass.bin)
 println("=========================================================================\n")
 
 # Cargar datos filtrados (antes del ICA)
-dir_filtering = joinpath(@__DIR__, "..", "data", "filtering")
+dir_filtering = stage_dir(:filtering)
 path_dict_lowpass = joinpath(dir_filtering, "dict_EEG_Lowpass.bin")
 dict_EEG_Lowpass = Serialization.deserialize(path_dict_lowpass)
 
@@ -160,7 +160,7 @@ println("  ICA Visualización y Limpieza")
 println("====================================\n")
 
 # Cargar resultados del análisis ICA
-dir_ica       = joinpath(@__DIR__, "..", "data", "ICA")
+dir_ica       = stage_dir(:ICA)
 path_dict_ica = joinpath(dir_ica, "dict_EEG_ICA.bin")
 
 dict_ICA = Serialization.deserialize(path_dict_ica)
@@ -201,7 +201,7 @@ println()
 # componentes ICA. Los mapas topográficos muestran cómo se distribuyen espacialmente
 # los pesos de cada componente sobre el cuero cabelludo.
 
-dir_electrodes = joinpath(@__DIR__, "..", "data", "electrodes")
+dir_electrodes = electrodes_dir()
 path_elec      = joinpath(dir_electrodes, "sub-M05_ses-T2_electrodes.tsv")
 
 # Leer archivo TSV con información de electrodos
@@ -632,7 +632,7 @@ println("=" ^ 60 * "\n")
 
 # Crear directorio de salida si no existe
 # Las figuras se guardan en results/figures/ICA_cleaning/
-dir_output = joinpath(@__DIR__, "..", "results", "figures", "ICA_cleaning")
+dir_output = stage_dir(:ICA_cleaning; kind = :figures)
 isdir(dir_output) || mkpath(dir_output)
 
 # Obtener número de componentes ICA
@@ -1165,7 +1165,7 @@ df_all = evaluate_ics(A, S, fs;
 display(df_all)
 
 # Guardar resultados de evaluación en tabla
-dir_tables = joinpath(@__DIR__, "..", "results", "tables")
+dir_tables = stage_dir(:ICA_cleaning; kind = :tables)
 isdir(dir_tables) || mkpath(dir_tables)
 
 path_table = joinpath(dir_tables, "ICA_components_evaluation.csv")

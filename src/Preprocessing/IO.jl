@@ -1,4 +1,5 @@
 #!/usr/bin/env julia
+
 # -*- coding: utf-8 -*-
 # src/IO.jl
 #
@@ -29,8 +30,7 @@
 
 using CSV
 using DataFrames
-using Plots
-# El backend GR se inicializa automáticamente al crear el primer plot
+using Plots         # El backend GR se inicializa automáticamente al crear el primer plot
 using Dates 
 using DSP
 using Serialization
@@ -38,6 +38,12 @@ using Statistics
 using StatsBase
 using StatsPlots
 using FFTW
+
+# Si este archivo se ejecuta directamente en Main, recarga utilidades de rutas
+# para evitar definiciones antiguas en la sesión REPL.
+if (@__MODULE__) == Main
+    include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+end
 
 # ------------------------------------------------------------------------------------
 # 1. CARGA DE DATOS RAW DESDE ARCHIVO TSV
@@ -55,8 +61,13 @@ println("📊 CARGA DE DATOS EEG")
 println("=" ^ 80)
 
 # Ruta al archivo de datos raw
-# Se usa @__DIR__ para obtener la ruta relativa al archivo del script
-dir_raw = joinpath(@__DIR__, "..", "data", "raw", "sub-M05_ses-T2_task-eyesclosed_run-01_eeg_data.tsv")
+raw_filename = "sub-M05_ses-T2_task-eyesclosed_run-01_eeg_data.tsv"
+cfg_local = @isdefined(cfg) ? cfg : nothing
+dir_raw = joinpath(bids_root(cfg_local), "raw", raw_filename)
+
+if !isfile(dir_raw)
+    error("No se encontró archivo EEG raw: $(abspath(dir_raw)). Revisa cfg.data_dir y la estructura BIDS (raw_dir).")
+end
 
 # Leer el archivo TSV como DataFrame
 # CSV.read carga el archivo y lo convierte en una estructura tabular
@@ -87,7 +98,8 @@ println("-" ^ 80)
 
 # Frecuencia de muestreo (Hz)
 # Define la resolución temporal: cuántas muestras se toman por segundo
-fs = 500
+fs = (cfg_local !== nothing && hasproperty(cfg_local, :filter) && hasproperty(cfg_local.filter, :fs)) ?
+    cfg_local.filter.fs : 500
 
 # Número de muestras temporales
 # Se resta 1 porque la primera columna es "Channel" (nombres de canales)
@@ -149,7 +161,7 @@ dict_EEG = Dict(data_raw.Channel[i] => EEG_matrix[i, :]
 # (filtrado, corrección de línea base, etc.)
 
 # Directorio de salida para datos IO
-dir_io = joinpath(@__DIR__, "..", "data", "IO")
+dir_io = stage_dir(:IO; cfg = cfg_local)
 path_dict = joinpath(dir_io, "dict_EEG.bin")
 
 # Asegurar que el directorio existe
@@ -257,7 +269,14 @@ println("  → PSD de todos los canales superpuestas")
 # Calcular límites Y amigables para escala logarítmica
 # Se buscan potencias de 10 que enmarquen todos los datos
 all_powers = vcat([PSD[ch].power for ch in channels]...)
-power_min_all, power_max_all = extrema(all_powers)
+all_powers_pos = filter(>(0), all_powers)
+if isempty(all_powers_pos)
+    error("No hay potencias positivas para graficar en escala log10.")
+end
+power_min_all, power_max_all = extrema(all_powers_pos)
+if power_max_all <= power_min_all
+    power_max_all = power_min_all * 10
+end
 y_min_log_all = floor(log10(power_min_all))
 y_max_log_all = ceil(log10(power_max_all))
 ylim_log_all = (10.0^y_min_log_all, 10.0^y_max_log_all)
@@ -296,38 +315,21 @@ println()
 # Estas bandas se usan para cuantificar la potencia espectral en rangos
 # fisiológicamente relevantes.
 
-# Límites de cada banda en Hz (frecuencia mínima, frecuencia máxima)
-Δ = (0.5, 4.0)      # Delta
-δ = (4.0, 8.0)      # Theta
-α = (8.0, 12.0)     # Alpha
-β_low = (12.0, 15.0)      # Beta bajo
-β_medium = (15.0, 18.0)   # Beta medio
-β_high = (18.0, 30.0)     # Beta alto
-γ = (30.0, 50.0)    # Gamma
+# Nomenclatura de bandas alineada con Pluto/BIDS/BIDS.jl
+Δ = (0.5, 4.0)
+δ = (4.0, 8.0)
+α = (8.0, 12.0)
+β_low = (12.0, 15.0)
+β_medium = (15.0, 18.0)
+β_high = (18.0, 30.0)
+γ = (30.0, 50.0)
 
-# Diccionario de límites de bandas
-band_limits = Dict(
-    :Δ => Δ,
-    :δ => δ,
-    :α => α,
-    :β_low => β_low,
-    :β_medium => β_medium,
-    :β_high => β_high,
-    :γ => γ,
-)
-
-# Orden de bandas para visualización y tablas
+band_limits = Dict(:Δ => Δ, :δ => δ, :α => α, :β_low => β_low, :β_medium => β_medium, :β_high => β_high, :γ => γ)
 ordered_bands = [:Δ, :δ, :α, :β_low, :β_medium, :β_high, :γ]
-
-# Etiquetas legibles para cada banda
 band_labels = Dict(
-    :Δ => "DELTA (0.5-4)",
-    :δ => "THETA (4-8)",
-    :α => "ALPHA (8-12)",
-    :β_low => "BETA LOW (12-15)",
-    :β_medium => "BETA MID (15-18)",
-    :β_high => "BETA HIGH (18-30)",
-    :γ => "GAMMA (30-50)",
+    :Δ => "DELTA (0.5-4)", :δ => "THETA (4-8)", :α => "ALPHA (8-12)",
+    :β_low => "BETA LOW (12-15)", :β_medium => "BETA MID (15-18)",
+    :β_high => "BETA HIGH (18-30)", :γ => "GAMMA (30-50)"
 )
 
 # Colores para visualización de bandas en gráficos
@@ -361,7 +363,14 @@ freqs_avg = PSD[first(channels)].freq
 avg_power = mapreduce(ch -> PSD[ch].power, +, channels) ./ length(channels)
 
 # Calcular límites de potencia para escala Y
-power_min, power_max = extrema(avg_power)
+avg_power_pos = filter(>(0), avg_power)
+if isempty(avg_power_pos)
+    error("La PSD promedio no contiene valores positivos para escala log10.")
+end
+power_min, power_max = extrema(avg_power_pos)
+if power_max <= power_min
+    power_max = power_min * 10
+end
 
 # Calcular límites Y amigables para escala logarítmica (potencias de 10)
 y_min_log = floor(log10(power_min))
@@ -372,7 +381,7 @@ ylim_log = (10.0^y_min_log, 10.0^y_max_log)
 plot!(p_psd_avg, ylim = ylim_log)
 
 # Añadir regiones sombreadas para cada banda de frecuencia
-# fillrange crea un área sombreada entre power_min y power_max en cada banda
+# fillrange crea un área sombreada entre límites positivos en cada banda
 for (idx, band) in enumerate(ordered_bands)
     limits = band_limits[band]
     plot!(
@@ -480,8 +489,15 @@ println("📊 Lectura datos espectrales de JAVIER")
 println("-" ^ 80)
 
 # Ruta al archivo de resultados de referencia
-dir_results = joinpath(@__DIR__, "..", "Javier_results")
-path_javier = joinpath(dir_results, "M5T2cerrados.txt")
+path_candidates = [
+    joinpath(project_root(), "Javier_results", "M5T2cerrados.txt"),      # layout actual (raíz del proyecto)
+    joinpath(@__DIR__, "..", "Javier_results", "M5T2cerrados.txt"),      # compatibilidad legacy
+]
+existing_paths = filter(isfile, path_candidates)
+path_javier = isempty(existing_paths) ? "" : first(existing_paths)
+if isempty(path_javier)
+    error("No se encontró M5T2cerrados.txt en: $(join(path_candidates, " | "))")
+end
 
 # Leer líneas del archivo y filtrar líneas vacías
 lines_javier = filter(x -> !isempty(strip(x)), readlines(path_javier))
@@ -622,3 +638,5 @@ end
 
 println("  → Scatter plot: Std vs Kurtosis (calidad de canales)")
 display(p)
+
+return path_dict

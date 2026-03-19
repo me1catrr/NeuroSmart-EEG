@@ -33,12 +33,12 @@ using Serialization
 # Se carga el diccionario EEG desde el paso de IO (dict_EEG.bin) y se configuran
 # las rutas de salida para los datos filtrados.
 
-dir_io = joinpath(@__DIR__, "..", "data", "IO")
+dir_io = stage_dir(:IO)
 path_dict = joinpath(dir_io, "dict_EEG.bin")
 dict_EEG = Serialization.deserialize(path_dict)
 
 # Directorio base para datos filtrados
-dir_filtering = joinpath(@__DIR__, "..", "data", "filtering")
+dir_filtering = stage_dir(:filtering)
 
 # ------------------------------------------------------------------------------------
 # 2. INFORMACIÓN TEMPORAL DEL REGISTRO

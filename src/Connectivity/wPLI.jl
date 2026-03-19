@@ -62,23 +62,22 @@ using CairoMakie: Figure, Axis, heatmap!, Colorbar, save
 #       para llegar a la raíz del proyecto
 
 # Rutas de entrada: datos CSD
-dir_csd = joinpath(@__DIR__, "..", "..", "data", "CSD")
+dir_csd = stage_dir(:CSD)
 path_dict_csd = joinpath(dir_csd, "dict_csd.bin")
 
 # Rutas de entrada: definición de bandas de frecuencia desde FFT
-dir_fft = joinpath(@__DIR__, "..", "..", "data", "FFT")
+dir_fft = stage_dir(:FFT)
 path_dict_fft_power = joinpath(dir_fft, "dict_FFT_power.bin")  # Intento primero con dict_FFT_power
 path_dict_fft = joinpath(dir_fft, "dict_FFT.bin")              # Fallback a dict_FFT
 
 # Rutas de salida: datos procesados con wPLI
-dir_wpli_data = joinpath(@__DIR__, "..", "..", "data", "wPLI")
+dir_wpli_data = stage_dir(:wPLI)
 out_dict_wpli = joinpath(dir_wpli_data, "dict_wpli.bin")
 
 # Rutas de salida: logs y resultados
-dir_results = joinpath(@__DIR__, "..", "..", "results")
-dir_logs    = joinpath(dir_results, "logs", "wPLI")      # Archivos de log
-dir_tables  = joinpath(dir_results, "tables", "wPLI")   # Tablas de resultados
-dir_figures = joinpath(dir_results, "figures", "wPLI")   # Figuras y visualizaciones
+dir_logs    = stage_dir(:wPLI; kind = :logs)      # Archivos de log
+dir_tables  = stage_dir(:wPLI; kind = :tables)    # Tablas de resultados
+dir_figures = stage_dir(:wPLI; kind = :figures)   # Figuras y visualizaciones
 
 # ------------------------------------------------------------------------------------
 # 2. LIMPIEZA DE RESULTADOS PREVIOS

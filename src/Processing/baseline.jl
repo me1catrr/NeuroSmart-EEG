@@ -55,7 +55,7 @@ println()
 
 # Cargar datos desde el paso anterior (segmentación)
 # La hipermatriz contiene todos los segmentos que serán corregidos
-dir_segmentation = joinpath(@__DIR__, "..", "data", "segmentation")
+dir_segmentation = stage_dir(:segmentation)
 path_dict_segmentation = joinpath(dir_segmentation, "dict_segmentation_info.bin")
 dict_segmentation_info = Serialization.deserialize(path_dict_segmentation)
 
@@ -269,7 +269,7 @@ println("💾 GUARDANDO RESULTADOS")
 println("-" ^ 80)
 
 # Crear directorio de baseline si no existe
-dir_baseline = joinpath(@__DIR__, "..", "data", "baseline")
+dir_baseline = stage_dir(:baseline)
 if !isdir(dir_baseline)
     mkpath(dir_baseline)
     println("  ✓ Directorio creado: $dir_baseline")

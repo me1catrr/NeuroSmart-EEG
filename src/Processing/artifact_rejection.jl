@@ -58,7 +58,7 @@ println("=" ^ 80)
 println()
 
 # Cargar datos desde el paso anterior (baseline correction)
-dir_baseline = joinpath(@__DIR__, "..", "data", "baseline")
+dir_baseline = stage_dir(:baseline)
 path_dict_baseline = joinpath(dir_baseline, "dict_1st_baseline_correction.bin")
 dict_baseline_info = Serialization.deserialize(path_dict_baseline)
 
@@ -393,7 +393,7 @@ println("💾 GUARDANDO RESULTADOS")
 println("-" ^ 80)
 
 # Crear directorio de artifact rejection si no existe
-dir_artifact_rejection = joinpath(@__DIR__, "..", "data", "artifact_rejection")
+dir_artifact_rejection = stage_dir(:artifact_rejection)
 if !isdir(dir_artifact_rejection)
     mkpath(dir_artifact_rejection)
     println("  ✓ Directorio creado: $dir_artifact_rejection")

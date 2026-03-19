@@ -11,7 +11,7 @@ using .DefaultConfig
 cfg = DEFAULT_CONFIG
 
 # Cargar módulo del proyecto
-include(joinpath(@__DIR__, "..", "src", "EEG_Julia.jl"))
+include(joinpath(@__DIR__, "..", "src", "modules", "EEG_Julia.jl"))
 using .EEG_Julia
 
 # Pipeline secuencial (flujo visible)

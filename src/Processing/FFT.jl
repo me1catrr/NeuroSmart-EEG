@@ -36,7 +36,7 @@ println("📊 CARGA DE DATOS DESPUÉS DEL 2ND BASELINE CORRECTION")
 println("=" ^ 80)
 println()
 
-dir_baseline = joinpath(@__DIR__, "..", "data", "baseline")
+dir_baseline = stage_dir(:baseline)
 path_dict_2nd_baseline = joinpath(dir_baseline, "dict_2nd_baseline_correction.bin")
 dict_2nd_baseline_info = Serialization.deserialize(path_dict_2nd_baseline)
 
@@ -59,9 +59,9 @@ println("  → Duración de cada segmento: $(round(segment_length_samples/fs, di
 println()
 
 # Definir directorio de figuras y datos FFT
-dir_figures_FFT = joinpath(@__DIR__, "..", "results", "figures", "FFT")
-dir_fft = joinpath(@__DIR__, "..", "data", "FFT")
-dir_tables_FFT = joinpath(@__DIR__, "..", "results", "tables", "FFT")
+dir_figures_FFT = stage_dir(:FFT; kind = :figures)
+dir_fft = stage_dir(:FFT)
+dir_tables_FFT = stage_dir(:FFT; kind = :tables)
 
 # Se eliminan todos los archivos previos antes de iniciar el procesamiento
 # para evitar confusiones con resultados antiguos.
@@ -1205,7 +1205,7 @@ alpha_vals = vec(mean(P_mean_2d[:, alpha_bins], dims=2))
 alpha_fmin = round(minimum(freqs_bva[alpha_bins]); digits=1)
 alpha_fmax = round(maximum(freqs_bva[alpha_bins]); digits=1)
 
-tsv_path = joinpath(@__DIR__, "..", "data", "electrodes", "sub-M05_ses-T2_electrodes.tsv")
+tsv_path = joinpath(electrodes_dir(), "sub-M05_ses-T2_electrodes.tsv")
 p_map = plot_bva_like_topomap_alpha(
     channels, alpha_vals, tsv_path;
     subtitle_txt="$(alpha_fmin) Hz - $(alpha_fmax) Hz"

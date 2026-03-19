@@ -44,11 +44,11 @@ println("Paso 1: Carga de datos filtrados    ")
 println("========================================")
 
 # Directorio base para datos ICA (donde se guardarán los resultados)
-dir_ica = joinpath(@__DIR__, "..", "data", "ICA")
+dir_ica = stage_dir(:ICA)
 path_dict_ica = joinpath(dir_ica, "dict_EEG_ICA.bin")
 
 # Directorio de datos filtrados (entrada para ICA)
-dir_filtering     = joinpath(@__DIR__, "..", "data", "filtering")
+dir_filtering     = stage_dir(:filtering)
 path_dict_lowpass = joinpath(dir_filtering, "dict_EEG_Lowpass.bin")
 
 # Cargar diccionario con señales por canal
