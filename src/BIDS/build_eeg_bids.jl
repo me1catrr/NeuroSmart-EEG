@@ -69,13 +69,23 @@ function parse_filename(filename)
         return nothing
     end
     
-    # Normalizar condición
-    condition_lower = lowercase(condition)
-    if occursin("ojosabiertos", condition_lower) || occursin("ojos abiertos", condition_lower) || 
-       occursin("ojosabiertos", condition_lower) || occursin("ojosabiertos", condition_lower)
+    # Normalizar condición (maneja separadores y acentos comunes)
+    condition_normalized = lowercase(condition)
+    condition_normalized = replace(
+        condition_normalized,
+        "á" => "a",
+        "é" => "e",
+        "í" => "i",
+        "ó" => "o",
+        "ú" => "u",
+        "_" => "",
+        "-" => "",
+        " " => ""
+    )
+
+    if occursin("ojosabiertos", condition_normalized)
         task = "eyesopen"
-    elseif occursin("ojoscerrados", condition_lower) || occursin("ojos cerrados", condition_lower) ||
-           occursin("ojoscerrados", condition_lower) || occursin("ojoscerrados", condition_lower)
+    elseif occursin("ojoscerrados", condition_normalized)
         task = "eyesclosed"
     else
         task = "unknown"

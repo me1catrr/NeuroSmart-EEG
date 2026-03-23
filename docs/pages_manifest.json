@@ -1,0 +1,26 @@
+[
+  {
+    "name": "BIDS",
+    "path": "Pluto/BIDS/index.html",
+    "source": "Pluto/BIDS/BIDS.jl",
+    "published": true
+  },
+  {
+    "name": "Connectivity",
+    "path": "Pluto/Connectivity/index.html",
+    "source": "Pluto/Connectivity/Connectivity.jl",
+    "published": true
+  },
+  {
+    "name": "Preprocessing",
+    "path": "Pluto/Preprocessing/index.html",
+    "source": "Pluto/Preprocessing/Preprocessing.jl",
+    "published": true
+  },
+  {
+    "name": "Processing",
+    "path": "Pluto/Processing/index.html",
+    "source": "Pluto/Processing/Processing.jl",
+    "published": true
+  }
+]
