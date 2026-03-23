@@ -1,26 +1,15 @@
 #!/usr/bin/env julia
 
-# -----------------------------------------------------------------------------
-# tools/pages/build.jl
+# Construye contenido de GitHub Pages desde exportaciones HTML de Pluto.
 #
-# Tooling de publicacion para GitHub Pages (no logica cientifica).
-#
-# Hace todo en una sola pasada:
-#   1) Asegura estructura docs/Pluto/<Modulo>/
-#   2) Copia HTML exportado desde un directorio opcional (si existe)
-#   3) Si no hay exportado, genera placeholder HTML
-#   4) Regenera docs/pages_manifest.json
-#   5) Imprime resumen final (published vs placeholder)
+# Flujo:
+#   - Fuente cientifica: Pluto/<Modulo>/<Modulo>.jl
+#   - Staging HTML manual: exports/Pluto/<Modulo>/index.html
+#   - Publicacion web: docs/Pluto/<Modulo>/index.html
 #
 # Uso:
 #   julia tools/pages/build.jl
-#   julia tools/pages/build.jl /ruta/a/exportaciones_html
-#
-# Convencion de busqueda en export_dir para cada modulo:
-#   - <export_dir>/<Modulo>/index.html
-#   - <export_dir>/<Modulo>.html
-#   - <export_dir>/<modulo_minusculas>.html
-# -----------------------------------------------------------------------------
+#   julia tools/pages/build.jl /ruta/custom/exports/Pluto
 
 using Dates
 
@@ -55,17 +44,12 @@ function project_root()::String
     return normpath(joinpath(@__DIR__, "..", ".."))
 end
 
-function read_text(path::String)::String
-    open(path, "r") do io
-        return read(io, String)
-    end
-end
-
-function write_text(path::String, content::String)
+function write_text(path::String, content::String)::Nothing
     mkpath(dirname(path))
     open(path, "w") do io
         write(io, content)
     end
+    return nothing
 end
 
 function json_escape(value::String)::String
@@ -77,7 +61,7 @@ function json_escape(value::String)::String
     return escaped
 end
 
-function placeholder_html(module_name::String, source_path::String, description::String)::String
+function placeholder_html(module_name::String, source_path::String)::String
     generated_at = Dates.format(now(), dateformat"yyyy-mm-dd HH:MM:SS")
     return """
 <!DOCTYPE html>
@@ -188,13 +172,12 @@ function placeholder_html(module_name::String, source_path::String, description:
     <article class="card">
       <span class="badge">NeuroSmart-EEG</span>
       <h1>Modulo $(module_name)</h1>
-      <p><strong>Contenido pendiente de exportacion.</strong></p>
-      <p>$(description)</p>
+      <p><strong>Aun no hay exportacion HTML disponible para este modulo.</strong></p>
       <p>
-        Esta pagina es un placeholder automatico. Cuando exportes el notebook real
-        de Pluto, reemplaza este archivo por el HTML final del modulo.
+        Exporta el notebook desde Pluto.jl y coloca el archivo en:
       </p>
-      <p>Notebook fuente esperado:</p>
+      <div class="source">exports/Pluto/$(module_name)/index.html</div>
+      <p>Notebook fuente:</p>
       <div class="source">$(source_path)</div>
       <div class="actions">
         <a class="btn" href="../../index.html">Volver a la portada</a>
@@ -207,21 +190,12 @@ function placeholder_html(module_name::String, source_path::String, description:
 """
 end
 
-function candidate_export_paths(export_dir::String, module_name::String)::Vector{String}
-    lowercase_name = lowercase(module_name)
-    return [
-        joinpath(export_dir, module_name, "index.html"),
-        joinpath(export_dir, "$(module_name).html"),
-        joinpath(export_dir, "$(lowercase_name).html"),
-    ]
+function default_exports_dir(root::String)::String
+    return joinpath(root, "exports", "Pluto")
 end
 
-function resolve_exported_html(export_dir::Union{Nothing, String}, module_name::String)::Union{Nothing, String}
-    export_dir === nothing && return nothing
-    for path in candidate_export_paths(export_dir, module_name)
-        isfile(path) && return path
-    end
-    return nothing
+function staged_export_path(exports_pluto_dir::String, module_name::String)::String
+    return joinpath(exports_pluto_dir, module_name, "index.html")
 end
 
 function relative_to_root(path::String, root::String)::String
@@ -241,58 +215,54 @@ function build_manifest_entry(name::String, path::String, source::String, publis
     )
 end
 
+function copy_file(src::String, dst::String)::Nothing
+    mkpath(dirname(dst))
+    cp(src, dst; force = true)
+    return nothing
+end
+
 function main()
     root = project_root()
     docs_dir = joinpath(root, "docs")
-    docs_pluto_dir = joinpath(docs_dir, "Pluto")
-    mkpath(docs_pluto_dir)
+    exports_pluto_dir = length(ARGS) >= 1 ? abspath(ARGS[1]) : default_exports_dir(root)
 
-    export_dir = length(ARGS) >= 1 ? abspath(ARGS[1]) : nothing
-    if export_dir !== nothing && !isdir(export_dir)
-        println("Aviso: no existe el directorio de exportaciones: ", export_dir)
-        println("Se usaran placeholders para modulos sin HTML local.")
-        export_dir = nothing
+    if !isdir(exports_pluto_dir)
+        println("Aviso: no existe directorio de staging HTML: ", exports_pluto_dir)
+        println("Se generaran placeholders para modulos sin exportacion.")
     end
 
     println("== NeuroSmart-EEG Pages Build ==")
     println("Raiz del proyecto: ", root)
-    export_dir !== nothing && println("Origen opcional de exportaciones: ", export_dir)
+    println("Staging de exportaciones Pluto: ", exports_pluto_dir)
+    println("Destino GitHub Pages: ", joinpath(docs_dir, "Pluto"))
 
     manifest_entries = String[]
-    published_modules = String[]
+    real_modules = String[]
     placeholder_modules = String[]
 
     for mod in MODULES
         target_html_abs = joinpath(root, mod.target)
-        target_dir_abs = dirname(target_html_abs)
-        mkpath(target_dir_abs)
+        staged_html_abs = staged_export_path(exports_pluto_dir, mod.name)
 
-        source_export_abs = resolve_exported_html(export_dir, mod.name)
-
-        used_placeholder = false
-        if source_export_abs !== nothing
-            write_text(target_html_abs, read_text(source_export_abs))
-        elseif !isfile(target_html_abs)
-            html = placeholder_html(mod.name, mod.source, mod.description)
+        published_real = false
+        if isfile(staged_html_abs)
+            copy_file(staged_html_abs, target_html_abs)
+            published_real = true
+        else
+            html = placeholder_html(mod.name, mod.source)
             write_text(target_html_abs, html)
-            used_placeholder = true
         end
 
-        # Si existia previamente un HTML (real o placeholder), se considera publicado.
-        published = isfile(target_html_abs)
-        rel_published_path = relative_to_root(target_html_abs, docs_dir) # Pluto/.../index.html
+        rel_published_path = relative_to_root(target_html_abs, docs_dir)
         push!(
             manifest_entries,
-            build_manifest_entry(mod.name, rel_published_path, mod.source, published),
+            build_manifest_entry(mod.name, rel_published_path, mod.source, true),
         )
 
-        if published
-            push!(published_modules, mod.name)
-            if used_placeholder
-                push!(placeholder_modules, mod.name)
-            elseif source_export_abs === nothing
-                # Archivo existente y no sobreescrito: estado desconocido, no se marca placeholder.
-            end
+        if published_real
+            push!(real_modules, mod.name)
+        else
+            push!(placeholder_modules, mod.name)
         end
     end
 
@@ -301,13 +271,9 @@ function main()
     write_text(manifest_path, manifest_content)
 
     println("\nResumen:")
-    println(" - Manifest generado: ", manifest_path)
-    println(" - Modulos con pagina disponible: ", length(published_modules), "/", length(MODULES))
-    println(" - Lista publicados: ", isempty(published_modules) ? "-" : join(published_modules, ", "))
-    println(
-        " - Lista en placeholder (creados en esta ejecucion): ",
-        isempty(placeholder_modules) ? "-" : join(placeholder_modules, ", "),
-    )
+    println(" - Manifest: ", manifest_path)
+    println(" - Modulos con HTML real: ", isempty(real_modules) ? "-" : join(real_modules, ", "))
+    println(" - Modulos en placeholder: ", isempty(placeholder_modules) ? "-" : join(placeholder_modules, ", "))
 end
 
 main()

@@ -3,31 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Portada del proyecto NeuroSmart-EEG con acceso a módulos y notebooks exportados desde Pluto.jl.">
+  <meta name="description" content="Portada de NeuroSmart-EEG con acceso unificado a modulos exportados desde Pluto.jl.">
   <title>NeuroSmart-EEG | GitHub Pages</title>
   <style>
-    /* =========================
-       Variables y base global
-       ========================= */
     :root {
-      --bg: #f4f7fb;
+      --bg: #f3f6fb;
       --surface: #ffffff;
       --text: #1f2937;
       --muted: #4b5563;
       --primary: #1d4ed8;
       --primary-hover: #1e40af;
-      --border: #dbe4f0;
+      --border: #d7e0ef;
       --shadow: 0 10px 24px rgba(16, 24, 40, 0.08);
-      --radius: 14px;
+      --radius: 16px;
       --max-width: 1100px;
     }
-
     * {
       box-sizing: border-box;
     }
-
-    html,
-    body {
+    html, body {
       margin: 0;
       padding: 0;
       font-family: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -35,24 +29,17 @@
       background: var(--bg);
       line-height: 1.6;
     }
-
     a {
       color: var(--primary);
       text-decoration: none;
     }
-
     a:hover {
       text-decoration: underline;
     }
-
     .container {
       width: min(100% - 2rem, var(--max-width));
       margin-inline: auto;
     }
-
-    /* =========================
-       Navegacion superior
-       ========================= */
     .top-nav {
       position: sticky;
       top: 0;
@@ -61,7 +48,6 @@
       backdrop-filter: blur(8px);
       border-bottom: 1px solid var(--border);
     }
-
     .top-nav .container {
       display: flex;
       align-items: center;
@@ -69,56 +55,45 @@
       gap: 1rem;
       padding: 0.9rem 0;
     }
-
     .brand {
       font-weight: 700;
       letter-spacing: 0.2px;
       color: #0f172a;
     }
-
     .nav-links {
       display: flex;
       gap: 1rem;
       flex-wrap: wrap;
     }
-
     .nav-links a {
       padding: 0.35rem 0.6rem;
       border-radius: 8px;
       color: var(--muted);
       font-size: 0.95rem;
     }
-
     .nav-links a:hover {
       background: #eef4ff;
       color: var(--primary-hover);
       text-decoration: none;
     }
-
-    /* =========================
-       Cabecera principal
-       ========================= */
     .hero {
-      padding: 4.5rem 0 3rem;
+      padding: 4.2rem 0 2.7rem;
       background:
         radial-gradient(circle at 15% 25%, rgba(29, 78, 216, 0.08), transparent 45%),
         radial-gradient(circle at 85% 20%, rgba(14, 165, 233, 0.1), transparent 42%);
     }
-
     .hero h1 {
       margin: 0 0 0.8rem;
       font-size: clamp(2rem, 4vw, 3rem);
       line-height: 1.15;
       color: #0b1220;
     }
-
     .hero p {
       margin: 0;
-      max-width: 760px;
+      max-width: 780px;
       color: var(--muted);
       font-size: 1.08rem;
     }
-
     .hero-note {
       margin-top: 1.1rem;
       display: inline-block;
@@ -129,26 +104,19 @@
       padding: 0.35rem 0.85rem;
       font-size: 0.9rem;
     }
-
-    /* =========================
-       Secciones de contenido
-       ========================= */
     section {
       padding: 2.2rem 0;
     }
-
     .section-heading {
       margin: 0 0 0.7rem;
       font-size: 1.45rem;
       color: #0f172a;
     }
-
     .section-intro {
       margin: 0 0 1.4rem;
       color: var(--muted);
       max-width: 780px;
     }
-
     .panel {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -156,16 +124,11 @@
       box-shadow: var(--shadow);
       padding: 1.25rem;
     }
-
-    /* =========================
-       Grid de modulos
-       ========================= */
     .cards-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
       gap: 1rem;
     }
-
     .module-card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -177,31 +140,26 @@
       min-height: 240px;
       transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
     }
-
     .module-card:hover {
       transform: translateY(-4px);
       border-color: #b8cdf6;
       box-shadow: 0 16px 30px rgba(18, 42, 90, 0.14);
     }
-
     .module-icon {
       font-size: 1.5rem;
       margin-bottom: 0.45rem;
     }
-
     .module-title {
       margin: 0 0 0.45rem;
       font-size: 1.12rem;
       color: #111827;
     }
-
     .module-description {
       margin: 0 0 1rem;
       color: var(--muted);
       flex-grow: 1;
       font-size: 0.96rem;
     }
-
     .module-link {
       display: inline-block;
       align-self: flex-start;
@@ -214,56 +172,33 @@
       border: 1px solid transparent;
       transition: background 0.2s ease;
     }
-
     .module-link:hover {
       background: var(--primary-hover);
       text-decoration: none;
     }
-
-    /* =========================
-       Bloques auxiliares
-       ========================= */
-    .project-structure code {
-      display: block;
-      white-space: pre;
-      overflow-x: auto;
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.9rem;
-      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
-      font-size: 0.88rem;
-      color: #334155;
+    .notes-list {
+      margin: 0;
+      padding-left: 1rem;
+      color: var(--muted);
     }
-
-    .results-link {
-      font-weight: 600;
+    .notes-list li {
+      margin-bottom: 0.4rem;
     }
-
-    /* =========================
-       Pie de pagina
-       ========================= */
     footer {
       margin-top: 1.8rem;
       border-top: 1px solid var(--border);
       background: #f8fbff;
     }
-
     .footer-content {
       padding: 1.2rem 0 1.7rem;
       color: #64748b;
       font-size: 0.92rem;
     }
-
-    /* =========================
-       Ajustes responsive
-       ========================= */
     @media (max-width: 640px) {
       .top-nav .container {
         flex-direction: column;
         align-items: flex-start;
       }
-
       .hero {
         padding-top: 3.6rem;
       }
@@ -271,40 +206,34 @@
   </style>
 </head>
 <body>
-  <!-- Navegacion principal -->
   <nav class="top-nav" aria-label="Navegacion principal">
     <div class="container">
       <div class="brand">NeuroSmart-EEG</div>
       <div class="nav-links">
         <a href="#introduccion">Introduccion</a>
         <a href="#modulos">Modulos</a>
-        <a href="#estructura">Estructura</a>
-        <a href="#resultados">Resultados</a>
+        <a href="#publicacion">Publicacion</a>
       </div>
     </div>
   </nav>
 
-  <!-- Cabecera / hero -->
   <header class="hero" id="introduccion">
     <div class="container">
       <h1>NeuroSmart-EEG</h1>
       <p>
         Plataforma de analisis EEG orientada a neurociencia computacional, con
-        notebooks interactivos exportados desde Pluto.jl para consulta, reporte
-        y reproducibilidad del flujo de trabajo.
+        modulos publicados como HTML estatico desde notebooks de Pluto.jl.
       </p>
-      <span class="hero-note">Repositorio academico-tecnico para procesamiento y analisis de EEG</span>
+      <span class="hero-note">Portada unificada para acceder a los modulos exportados</span>
     </div>
   </header>
 
   <main>
-    <!-- Seccion de modulos disponibles -->
     <section id="modulos">
       <div class="container">
         <h2 class="section-heading">Modulos disponibles</h2>
         <p class="section-intro">
-          Accede a cada modulo del proyecto desde esta portada. Los enlaces estan
-          preparados para las futuras exportaciones HTML ubicadas en `docs/Pluto/...`.
+          Cada boton abre la version HTML publicada del modulo en GitHub Pages.
         </p>
 
         <div class="cards-grid" role="list">
@@ -351,56 +280,27 @@
       </div>
     </section>
 
-    <!-- Seccion de estructura del proyecto -->
-    <section id="estructura">
+    <section id="publicacion">
       <div class="container">
-        <h2 class="section-heading">Estructura del proyecto</h2>
+        <h2 class="section-heading">Publicacion y alcance</h2>
         <p class="section-intro">
-          La portada de GitHub Pages se publica desde la carpeta `docs` y centraliza
-          el acceso a los notebooks exportados en HTML.
-        </p>
-        <div class="panel project-structure">
-          <code>docs/
-  |- .nojekyll
-  |- index.html
-  |- README_pages.md
-  |- Javier_results/
-  `- Pluto/
-      |- BIDS/index.html
-      |- Connectivity/index.html
-      |- Preprocessing/index.html
-      `- Processing/index.html</code>
-        </div>
-      </div>
-    </section>
-
-    <!-- Seccion de resultados -->
-    <section id="resultados">
-      <div class="container">
-        <h2 class="section-heading">Resultados</h2>
-        <p class="section-intro">
-          Puedes consultar resultados previamente generados en la carpeta de
-          reportes del proyecto.
+          Esta web publica una portada en <code>docs/</code> y centraliza el acceso a
+          los modulos HTML ubicados en <code>docs/Pluto/</code>.
         </p>
         <div class="panel">
-          <p>
-            Carpeta de resultados disponible:
-            <a class="results-link" href="Javier_results/">Javier_results</a>
-          </p>
-          <p>
-            Si algun modulo aun no tiene su `index.html`, exporta primero el notebook
-            desde Pluto.jl a la ruta correspondiente dentro de `docs/Pluto/`.
-          </p>
+          <ul class="notes-list">
+            <li>Los notebooks fuente viven en <code>Pluto/</code> y se mantienen como codigo cientifico.</li>
+            <li>Las exportaciones HTML de Pluto.jl se preparan fuera de <code>docs/</code> y luego se sincronizan para publicar.</li>
+            <li>Esta portada funciona como punto de acceso unificado a los modulos exportados.</li>
+          </ul>
         </div>
       </div>
     </section>
   </main>
 
-  <!-- Pie de pagina -->
   <footer>
     <div class="container footer-content">
       Sitio publicado con GitHub Pages desde la carpeta <strong>docs</strong>.
-      <!-- redeploy-marker: 2026-03-23 -->
     </div>
   </footer>
 </body>

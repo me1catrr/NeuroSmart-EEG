@@ -1,20 +1,31 @@
 # Publicacion GitHub Pages (`tools/pages`)
 
-Guia unica del flujo de publicacion de Pages para este repositorio.
+Guia principal y unica del flujo de publicacion web para este repositorio Julia + Pluto.
 
-## Convencion del repositorio
+## Que se publica
 
-- Rama principal unica: `main`
-- Origen de publicacion en GitHub Pages: `main:/docs`
-- Tooling de publicacion: `tools/pages/`
-- Sin logica de publicacion en `src/`
+- GitHub Pages publica desde `main:/docs`.
+- Portada: `docs/index.html`.
+- Modulos HTML: `docs/Pluto/<Modulo>/index.html`.
+
+## Que NO se publica
+
+- Carpetas de resultados internos o no publicables.
+- `Javier_results` no forma parte de la web publicada.
+- Notebooks fuente `.jl` no se publican directamente como pagina web.
+
+## Ubicacion de cada tipo de archivo
+
+- Fuente cientifica: `Pluto/<Modulo>/<Modulo>.jl`
+- Staging de HTML exportado manualmente: `exports/Pluto/<Modulo>/index.html`
+- Destino publicado en Pages: `docs/Pluto/<Modulo>/index.html`
 
 ## Scripts
 
 - `tools/pages/build.jl`
-  - Construye/actualiza `docs/` para Pages.
-  - Copia HTML exportado si existe.
-  - Genera placeholders donde no haya exportacion.
+  - Busca exportaciones reales en `exports/Pluto/...` (o en una ruta custom opcional).
+  - Si existe HTML real del modulo, lo copia a `docs/Pluto/...`.
+  - Si no existe, genera un placeholder claro con enlace de vuelta a portada.
   - Regenera `docs/pages_manifest.json`.
 
 - `tools/pages/publish.jl`
@@ -22,13 +33,16 @@ Guia unica del flujo de publicacion de Pages para este repositorio.
   - Muestra `git status --short`.
   - Si no hay cambios: termina correctamente.
   - Si hay cambios: `git add .` -> `git commit` -> `git push`.
-  - Si `git push` falla por falta de upstream: reintenta con `git push --set-upstream origin <rama_actual>`.
-  - Informa la rama actual y advierte (sin bloquear) si no es `main`.
+  - Fallback unico para upstream ausente: `git push --set-upstream origin <rama_actual>`.
 
-## Comandos de uso
+## Comandos
 
 ```bash
 julia tools/pages/build.jl
+```
+
+```bash
+julia tools/pages/build.jl "/ruta/custom/exports/Pluto"
 ```
 
 ```bash
@@ -36,22 +50,19 @@ julia tools/pages/publish.jl
 ```
 
 ```bash
-julia tools/pages/publish.jl "mensaje personalizado"
+julia tools/pages/publish.jl "mensaje"
 ```
 
 ## Flujo recomendado
 
-1. Trabajar notebooks fuente en `Pluto/...`.
-2. Exportar HTML de Pluto con tu flujo habitual.
-3. Ejecutar `julia tools/pages/build.jl` para actualizar `docs/`.
-4. Revisar localmente `docs/index.html` y `docs/Pluto/*/index.html`.
-5. Ejecutar `julia tools/pages/publish.jl` para commit + push.
+1. Editar notebook fuente en `Pluto/<Modulo>/<Modulo>.jl`.
+2. Exportar HTML desde Pluto.jl manualmente.
+3. Guardar el HTML exportado en `exports/Pluto/<Modulo>/index.html`.
+4. Ejecutar `julia tools/pages/build.jl`.
+5. Verificar `docs/index.html` y `docs/Pluto/<Modulo>/index.html`.
+6. Ejecutar `julia tools/pages/publish.jl "mensaje"`.
 
-## Verificacion de actualizacion en GitHub Pages
+## Nota sobre exportacion de Pluto
 
-Despues del push:
-
-1. Esperar 1-3 minutos.
-2. Revisar en GitHub el ultimo commit en `main`.
-3. Abrir el sitio de Pages y confirmar que carga la version nueva de `docs/index.html`.
-4. Verificar al menos un modulo en `docs/Pluto/.../index.html`.
+Este repositorio no fuerza una exportacion automatica de Pluto desde `build.jl`.
+La exportacion HTML se considera un paso manual y verificable; `build.jl` solo sincroniza a `docs/` o genera placeholders cuando falta exportacion real.
