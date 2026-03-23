@@ -31,8 +31,14 @@
 # --- Logs y temporales ---
 *.log
 *.tmp
+*.temp
 *.swp
 *~
+.cache/
+tmp/
+temp/
+__pycache__/
+.ipynb_checkpoints/
 
 # --- Pluto / notebooks ---
 # Pluto guarda notebooks como .jl (esos SÍ se versionan).
@@ -48,6 +54,7 @@
 # --- macOS ---
 .DS_Store
 ._*
+Thumbs.db
 
 # --- Secrets comunes ---
 .env
