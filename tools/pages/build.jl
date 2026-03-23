@@ -190,12 +190,58 @@ function placeholder_html(module_name::String, source_path::String)::String
 """
 end
 
+function incomplete_export_html(module_name::String, source_path::String, missing_assets::Vector{String})::String
+    generated_at = Dates.format(now(), dateformat"yyyy-mm-dd HH:MM:SS")
+    missing_list = join(["<li><code>$(asset)</code></li>" for asset in missing_assets], "\n")
+    return """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NeuroSmart-EEG | $(module_name)</title>
+  <style>
+    body { font-family: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #f4f7fb; color: #1f2937; }
+    main { min-height: 100dvh; display: grid; place-items: center; padding: 2rem 1rem; }
+    .card { width: min(100%, 860px); background: #fff; border: 1px solid #dbe4f0; border-radius: 14px; padding: 1.4rem; }
+    h1 { margin: 0 0 .7rem 0; }
+    code { background: #f8fafc; padding: 0.1rem 0.35rem; border-radius: 6px; }
+    .btn { display: inline-block; margin-top: 1rem; padding: .55rem .9rem; border-radius: 10px; background: #1d4ed8; color: #fff; text-decoration: none; font-weight: 600; }
+    ul { margin-top: .5rem; }
+    .source { margin-top: .8rem; color: #475569; }
+    footer { margin-top: 1rem; color: #64748b; font-size: .86rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <article class="card">
+      <h1>Modulo $(module_name)</h1>
+      <p><strong>La exportacion HTML existe, pero esta incompleta.</strong></p>
+      <p>Faltan recursos locales requeridos por <code>index.html</code>:</p>
+      <ul>
+        $(missing_list)
+      </ul>
+      <p class="source">Notebook fuente: <code>$(source_path)</code></p>
+      <p class="source">Reexporta desde Pluto y copia la carpeta completa en <code>exports/Pluto/$(module_name)/</code>.</p>
+      <a class="btn" href="../../index.html">Volver a la portada</a>
+      <footer>Diagnostico generado automaticamente el $(generated_at).</footer>
+    </article>
+  </main>
+</body>
+</html>
+"""
+end
+
 function default_exports_dir(root::String)::String
     return joinpath(root, "exports", "Pluto")
 end
 
 function staged_export_path(exports_pluto_dir::String, module_name::String)::String
     return joinpath(exports_pluto_dir, module_name, "index.html")
+end
+
+function staged_export_dir(exports_pluto_dir::String, module_name::String)::String
+    return joinpath(exports_pluto_dir, module_name)
 end
 
 function relative_to_root(path::String, root::String)::String
@@ -221,6 +267,29 @@ function copy_file(src::String, dst::String)::Nothing
     return nothing
 end
 
+function copy_dir_replace(src_dir::String, dst_dir::String)::Nothing
+    rm(dst_dir; recursive = true, force = true)
+    mkpath(dirname(dst_dir))
+    cp(src_dir, dst_dir; force = true)
+    return nothing
+end
+
+function missing_local_assets(index_html::String, base_dir::String)::Vector{String}
+    matches = eachmatch(r"""["']\./([^"']+)["']""", index_html)
+    refs = Set{String}()
+    for m in matches
+        push!(refs, m.captures[1])
+    end
+
+    missing = String[]
+    for ref in sort(collect(refs))
+        if !isfile(joinpath(base_dir, ref))
+            push!(missing, ref)
+        end
+    end
+    return missing
+end
+
 function main()
     root = project_root()
     docs_dir = joinpath(root, "docs")
@@ -243,11 +312,23 @@ function main()
     for mod in MODULES
         target_html_abs = joinpath(root, mod.target)
         staged_html_abs = staged_export_path(exports_pluto_dir, mod.name)
+        staged_dir_abs = staged_export_dir(exports_pluto_dir, mod.name)
+        target_dir_abs = dirname(target_html_abs)
 
         published_real = false
         if isfile(staged_html_abs)
-            copy_file(staged_html_abs, target_html_abs)
-            published_real = true
+            staged_html_content = read(staged_html_abs, String)
+            missing_assets = missing_local_assets(staged_html_content, staged_dir_abs)
+
+            if isempty(missing_assets)
+                copy_dir_replace(staged_dir_abs, target_dir_abs)
+                published_real = true
+            else
+                println("Aviso: exportacion incompleta para ", mod.name, " (faltan assets).")
+                println("       Recursos faltantes: ", join(missing_assets, ", "))
+                html = incomplete_export_html(mod.name, mod.source, missing_assets)
+                write_text(target_html_abs, html)
+            end
         else
             html = placeholder_html(mod.name, mod.source)
             write_text(target_html_abs, html)

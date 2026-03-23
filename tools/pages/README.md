@@ -17,14 +17,16 @@ Guia principal y unica del flujo de publicacion web para este repositorio Julia 
 ## Ubicacion de cada tipo de archivo
 
 - Fuente cientifica: `Pluto/<Modulo>/<Modulo>.jl`
-- Staging de HTML exportado manualmente: `exports/Pluto/<Modulo>/index.html`
+- Staging de HTML exportado manualmente: `exports/Pluto/<Modulo>/` (carpeta completa)
 - Destino publicado en Pages: `docs/Pluto/<Modulo>/index.html`
 
 ## Scripts
 
 - `tools/pages/build.jl`
   - Busca exportaciones reales en `exports/Pluto/...` (o en una ruta custom opcional).
-  - Si existe HTML real del modulo, lo copia a `docs/Pluto/...`.
+  - Si existe exportacion real del modulo, copia la carpeta completa a `docs/Pluto/...`.
+  - Valida referencias locales `./...` del `index.html` (JS/CSS/assets).
+  - Si faltan assets requeridos, genera una pagina de diagnostico de exportacion incompleta.
   - Si no existe, genera un placeholder claro con enlace de vuelta a portada.
   - Regenera `docs/pages_manifest.json`.
 
@@ -57,7 +59,7 @@ julia tools/pages/publish.jl "mensaje"
 
 1. Editar notebook fuente en `Pluto/<Modulo>/<Modulo>.jl`.
 2. Exportar HTML desde Pluto.jl manualmente.
-3. Guardar el HTML exportado en `exports/Pluto/<Modulo>/index.html`.
+3. Guardar la exportacion completa en `exports/Pluto/<Modulo>/` (incluyendo `index.html` y assets).
 4. Ejecutar `julia tools/pages/build.jl`.
 5. Verificar `docs/index.html` y `docs/Pluto/<Modulo>/index.html`.
 6. Ejecutar `julia tools/pages/publish.jl "mensaje"`.
@@ -65,4 +67,5 @@ julia tools/pages/publish.jl "mensaje"
 ## Nota sobre exportacion de Pluto
 
 Este repositorio no fuerza una exportacion automatica de Pluto desde `build.jl`.
-La exportacion HTML se considera un paso manual y verificable; `build.jl` solo sincroniza a `docs/` o genera placeholders cuando falta exportacion real.
+La exportacion HTML se considera un paso manual y verificable; `build.jl` solo sincroniza a `docs/` o genera placeholders cuando falta exportacion real.  
+Si el `index.html` referencia archivos locales que no estan en `exports/Pluto/<Modulo>/`, el build publica un diagnostico de exportacion incompleta para evitar una pagina rota en GitHub Pages.
