@@ -280,11 +280,42 @@ function copy_dir_replace(src_dir::String, dst_dir::String)::Nothing
     return nothing
 end
 
+function is_local_asset_ref(ref::AbstractString)::Bool
+    value = strip(ref)
+    isempty(value) && return false
+
+    lower = lowercase(value)
+    startswith(lower, "http://") && return false
+    startswith(lower, "https://") && return false
+    startswith(lower, "data:") && return false
+    startswith(lower, "mailto:") && return false
+    startswith(lower, "javascript:") && return false
+    startswith(value, "//") && return false
+    startswith(value, "#") && return false
+    startswith(value, "/") && return false
+
+    return true
+end
+
+function normalize_local_ref(ref::AbstractString)::String
+    value = strip(ref)
+    value = split(value, '#'; limit = 2)[1]
+    value = split(value, '?'; limit = 2)[1]
+    return value
+end
+
 function missing_local_assets(index_html::String, base_dir::String)::Vector{String}
-    matches = eachmatch(r"""["']\./([^"']+)["']""", index_html)
+    # Validamos solo referencias reales en atributos HTML (src/href),
+    # para evitar falsos positivos de texto embebido (ej. importmap JSON).
+    attr_matches = eachmatch(r"""(?i)\b(?:src|href)\s*=\s*["']([^"']+)["']""", index_html)
     refs = Set{String}()
-    for m in matches
-        push!(refs, m.captures[1])
+
+    for m in attr_matches
+        raw_ref = m.captures[1]
+        is_local_asset_ref(raw_ref) || continue
+        ref = normalize_local_ref(raw_ref)
+        isempty(ref) && continue
+        push!(refs, ref)
     end
 
     missing = String[]
