@@ -15,6 +15,12 @@ using Dates
 
 const MODULES = [
     (
+        name = "Setup",
+        source = "Pluto/Setup/Project_Setup.jl",
+        target = "docs/Pluto/Setup/index.html",
+        description = "Configuracion general y contexto del proyecto",
+    ),
+    (
         name = "BIDS",
         source = "Pluto/BIDS/BIDS.jl",
         target = "docs/Pluto/BIDS/index.html",

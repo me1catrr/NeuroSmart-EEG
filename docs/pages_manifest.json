@@ -1,5 +1,11 @@
 [
   {
+    "name": "Setup",
+    "path": "Pluto/Setup/index.html",
+    "source": "Pluto/Setup/Project_Setup.jl",
+    "published": true
+  },
+  {
     "name": "BIDS",
     "path": "Pluto/BIDS/index.html",
     "source": "Pluto/BIDS/BIDS.jl",
