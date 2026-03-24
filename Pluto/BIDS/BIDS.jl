@@ -96,6 +96,23 @@ Los datos se representan como matrices
 $X_{s,k} \in \mathbb{R}^{C \times N},$
 
 donde $s$ indexa a los sujetos y $k \in \{\text{EO}, \text{EC}\}$ denota la condición de registro. Cada fila corresponde a la serie temporal de un electrodo, expresada en microvoltios ($\mu V$).
+
+## Informacion tecnica de adquisicion BrainVision
+
+### Sistema de grabacion EEG
+
+- **Amplificador**: actiCHamp Base Unit (5001) + modulo 32 CH
+- **Software**: BrainVision Recorder Professional v. 1.21.0303
+- **Formato**: Brain Vision Data Exchange Header File v1.0
+
+### Parametros de grabacion
+
+- **Canales**: 31 electrodos (sistema 10-20 internacional)
+- **Frecuencia de muestreo**: 500 Hz
+- **Resolucion**: 0.0488281 uV por unidad digital
+- **Duracion**: 3-5 minutos por condicion (ojos abiertos/cerrados)
+- **Filtros hardware**: DC-140 Hz
+- **Filtros software**: 0.63-70 Hz + notch 50 Hz
 """
 
 # ╔═╡ 97e1f81e-e8fc-4232-a7f4-0f145f2eae11
@@ -103,6 +120,8 @@ md"""
 ## Software BrainVision
 
 **BrainVision Analyzer** es un software comercial ampliamente utilizado para el procesamiento y análisis de señales de **EEG**, desarrollado por **Brain Products**.
+
+En este dataset, la adquisicion se realizo con **actiCHamp Base Unit (5001)** y modulo de **32 canales**, mediante **BrainVision Recorder Professional v. 1.21.0303**, utilizando el formato **Brain Vision Data Exchange Header File v1.0**.
 
 ### Estructura típica de archivos BrainVision
 
