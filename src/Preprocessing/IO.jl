@@ -611,7 +611,7 @@ idx_raros = (kurts .> 6) .| (stds .< 5)
 colors = ifelse.(idx_raros, :red, :blue)
 
 # Crear scatter plot
-p = scatter(
+p_scatter = scatter(
     stds, kurts;
     color  = colors,
     xlabel = "Std (µV)",
@@ -637,6 +637,6 @@ for i in eachindex(names_)
 end
 
 println("  → Scatter plot: Std vs Kurtosis (calidad de canales)")
-display(p)
+display(p_scatter)
 
 return path_dict

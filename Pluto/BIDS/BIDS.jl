@@ -7,14 +7,19 @@ using InteractiveUtils
 # ╔═╡ 8d84f7cc-d13b-4b49-a2e0-cbf70d2d75a5
 begin
 	using PlutoUI
-	PlutoUI.TableOfContents(title = "Contenido - BIDS")
+	PlutoUI.TableOfContents(title = "Contenido")
 end
 
 # ╔═╡ 62346384-1eef-4e5a-b7a0-e1b8af341cbe
 begin
 	include(joinpath(@__DIR__, "..", "_template_base.jl"))
+	# Si este archivo se ejecuta directamente en Main, recarga utilidades de rutas
+	# para evitar definiciones antiguas en la sesión REPL.
+	if (@__MODULE__) == Main
+		include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+	end
 	using .PlutoTemplateBase
-	using CSV, DataFrames, Serialization, Statistics, StatsBase, DSP, Plots, Dates
+	using CSV, DataFrames, Serialization, Statistics, StatsBase, DSP, Plots, Dates, StatsPlots, FFTW
 end
 
 # ╔═╡ 6a3f59f9-df9d-44a6-9a0e-bbc5a87d9057
@@ -372,6 +377,16 @@ begin
 	first(participants_preview, min(nrow(participants_preview), 10))
 end
 
+# ╔═╡ 11f6f202-6ca0-4f51-a6d3-e59aeb4e8130
+md"
+# Raw data (datos crudos)
+
+Antes de cualquier etapa de preprocesamiento es recomendable realizar una **inspección básica del EEG crudo**.  
+Esto permite detectar problemas de adquisición, artefactos evidentes o canales defectuosos que podrían afectar al análisis posterior.
+
+Las siguientes representaciones gráficas y estadísticas son útiles para realizar un **control de calidad inicial (QC)** de los datos.
+"
+
 # ╔═╡ 5fddf73d-9b85-47f7-b8eb-c4788de33484
 md"""
 ## Pipeline fase 0 (Raw data)
@@ -384,16 +399,6 @@ md"""
     - Construir representacion estructurada por sujeto.
     - Generar visualizaciones y estadisticas de calidad por canal.
 """
-
-# ╔═╡ 11f6f202-6ca0-4f51-a6d3-e59aeb4e8130
-md"
-# Raw data (datos crudos)
-
-Antes de cualquier etapa de preprocesamiento es recomendable realizar una **inspección básica del EEG crudo**.  
-Esto permite detectar problemas de adquisición, artefactos evidentes o canales defectuosos que podrían afectar al análisis posterior.
-
-Las siguientes representaciones gráficas y estadísticas son útiles para realizar un **control de calidad inicial (QC)** de los datos.
-"
 
 # ╔═╡ 77df8d14-c178-44e8-982f-71b38ffaf77b
 md"
@@ -414,59 +419,39 @@ Este archivo es la entrada principal del pipeline y contiene los datos sin ning�
 
 # ╔═╡ f9f9a9a3-a2c3-4a93-a3de-80de403f0d5f
 begin
-	println("=" ^ 60)
-	println("📊 CARGA DE DATOS EEG")
-	println("=" ^ 60)
+# -----------------------------------------------------------------------------------
+# 1. CARGA DE DATOS RAW DESDE ARCHIVO TSV
+# -----------------------------------------------------------------------------------
+# Se carga el archivo TSV que contiene los datos EEG raw. El formato esperado es:
+# - Primera columna: nombres de canales (Channel)
+# - Columnas siguientes: muestras temporales (una columna por punto de tiempo)
+# - Los datos están en unidades de microvoltios (µV)
+#
+# Este archivo es la entrada principal del pipeline y contiene los datos sin
+# ningún procesamiento previo.
 
-	# Ruta al archivo de datos raw (prioriza data/BIDS/raw)
-	cfg_raw = @isdefined(cfg) ? cfg : nothing
-	preferred_name = "sub-M05_ses-T2_task-eyesclosed_run-01_eeg_data.tsv"
-	candidate_paths = [
-		joinpath(project_root(), "data", "BIDS", "raw", preferred_name), # layout esperado
-		joinpath(raw_dir(cfg_raw), preferred_name),                       # utilidades centralizadas
-		joinpath(project_root(), "data", "raw", preferred_name),          # compatibilidad legacy
-	]
-	existing_candidates = filter(isfile, candidate_paths)
+println("=" ^ 80)
+println("📊 CARGA DE DATOS EEG")
+println("=" ^ 80)
 
-	if isempty(existing_candidates)
-		discover_dirs = [
-			joinpath(project_root(), "data", "BIDS", "raw"),
-			raw_dir(cfg_raw),
-			joinpath(project_root(), "data", "raw"),
-		]
-		discovered_tsv = String[]
-		for d in discover_dirs
-			if isdir(d)
-				append!(discovered_tsv, filter(p -> endswith(lowercase(p), ".tsv"), readdir(d; join = true)))
-			end
-		end
-		raw_tsv_path = isempty(discovered_tsv) ? "" : first(sort(discovered_tsv))
-	else
-		raw_tsv_path = first(existing_candidates)
-	end
+# Ruta al archivo de datos raw
+raw_filename = "sub-M05_ses-T2_task-eyesclosed_run-01_eeg_data.tsv"
+cfg_local = @isdefined(cfg) ? cfg : nothing
+dir_raw = joinpath(bids_root(cfg_local), "raw", raw_filename)
 
-	# Leer el archivo TSV como DataFrame
-	# CSV.read carga el archivo y lo convierte en una estructura tabular.
-	# Forzamos tabulador para evitar que el TSV se lea como una sola columna.
-	data_raw = if !isempty(raw_tsv_path) && isfile(raw_tsv_path)
-		CSV.read(raw_tsv_path, DataFrame; delim = '\t')
-	else
-		@warn "No se encontró el TSV raw; usando datos demo (modo público/export)." candidate_paths
-		n = 2000
-		t = range(0, step = 1 / 500, length = n)
-		DataFrame(
-			Channel = ["Cz", "Pz", "Fz", "Oz"],
-			[Symbol("s$(i)") => [sin(2π * 10 * t[i]) + 0.05 * randn(), sin(2π * 8 * t[i]) + 0.05 * randn(),
-			                    sin(2π * 12 * t[i]) + 0.05 * randn(), sin(2π * 6 * t[i]) + 0.05 * randn()]
-			 for i in 1:n]...,
-		)
-	end
+if !isfile(dir_raw)
+    error("No se encontró archivo EEG raw: $(abspath(dir_raw)). Revisa cfg.data_dir y la estructura BIDS (raw_dir).")
+end
 
-	println("✓ Archivo cargado: $(isempty(raw_tsv_path) ? "DEMO" : basename(raw_tsv_path))")
-	println("✓ Ruta usada: $(isempty(raw_tsv_path) ? "sin archivo real (demo)" : raw_tsv_path)")
-	println("✓ Dimensiones: $(size(data_raw, 1)) canales × $(size(data_raw, 2) - 1) muestras")
-	println("✓ Tabla de datos:")
-	display(data_raw)
+# Leer el archivo TSV como DataFrame
+# CSV.read carga el archivo y lo convierte en una estructura tabular
+data_raw = CSV.read(dir_raw, DataFrame)   
+
+println("✓ Archivo cargado: $(basename(dir_raw))")
+println("✓ Dimensiones: $(size(data_raw, 1)) canales × $(size(data_raw, 2) - 1) muestras")
+println("✓ Tabla de datos:")
+display(data_raw)
+println()
 end
 
 # ╔═╡ a9f6c35a-7e7b-4383-80ff-1df3d49f2bf6
@@ -482,253 +467,552 @@ En este caso se extrae información sobre las características temporales del re
 
 # ╔═╡ 6dcf7d5d-fc68-4f21-8f40-406f173122f2
 begin
-	println("=" ^ 60)
-	println("⏱️  INFORMACIÓN TEMPORAL")
-	println("=" ^ 60)
+# -----------------------------------------------------------------------------------
+# 2. INFORMACIÓN TEMPORAL DEL REGISTRO
+# -----------------------------------------------------------------------------------
+# Se extrae información sobre las características temporales del registro:
+# - Frecuencia de muestreo (fs): número de muestras por segundo
+# - Número de muestras: longitud temporal del registro
+# - Duración total: tiempo total de registro en segundos y minutos
+#
+# Esta información es esencial para:
+# - Cálculo de frecuencias en análisis espectral
+# - Aplicación de filtros (requieren fs)
+# - Segmentación temporal
+# - Visualización de señales en el dominio temporal
 
-	fs = 500
-	n_muestras = size(data_raw, 2) - 1
-	tiempo_seg = collect(0:(n_muestras-1)) ./ fs
-	duracion_total = tiempo_seg[end]
+println("⏱️  INFORMACIÓN TEMPORAL")
+println("-" ^ 80)
 
-	println("  Frecuencia de muestreo: $(fs) Hz")
-	println("  Número de muestras: $(n_muestras)")
-	println("  Duración total: $(round(duracion_total, digits=2)) segundos ($(round(duracion_total/60, digits=2)) minutos)")
+# Frecuencia de muestreo (Hz)
+# Define la resolución temporal: cuántas muestras se toman por segundo
+fs = (cfg_local !== nothing && hasproperty(cfg_local, :filter) && hasproperty(cfg_local.filter, :fs)) ?
+    cfg_local.filter.fs : 500
+
+# Número de muestras temporales
+# Se resta 1 porque la primera columna es "Channel" (nombres de canales)
+n_muestras = size(data_raw, 2) - 1
+
+# Vector de tiempo en segundos
+# Se genera desde 0 hasta (n_muestras-1) y se divide por fs para obtener segundos
+tiempo_seg = collect(0:(n_muestras-1)) ./ fs
+
+# Duración total del registro
+duracion_total = tiempo_seg[end]
+
+println("  Frecuencia de muestreo: $(fs) Hz")
+println("  Número de muestras: $(n_muestras)")
+println("  Duración total: $(round(duracion_total, digits=2)) segundos ($(round(duracion_total/60, digits=2)) minutos)")
+println()
 end
 
 # ╔═╡ 1ccb18f5-b6f8-431a-a670-a94efea7e988
 md"
 **Extraccion y organizacion de canales**
+
+Se extraen los nombres de los canales y se organizan los datos en estructuras
+convenientes para el procesamiento, de forma siguiente:
+
+- **channels**: vector con nombres de canales
+- **EEG_matrix**: matriz (canales × muestras) con todos los datos
+- **dict_EEG**: diccionario que mapea nombre de canal → señal (vector)
+
+El diccionario es especialmente útil porque permite acceso por nombre de canal
+y facilita el procesamiento posterior en el pipeline.
 "
 
 # ╔═╡ 8b676680-8e27-49f7-991f-c8dffef2f62d
 begin
-	colnames = names(data_raw)
-	channel_col = if :Channel in colnames
-		:Channel
-	elseif !isempty(colnames)
-		first(colnames)  # fallback: primera columna como etiqueta de canal
-	else
-		nothing
-	end
+# -----------------------------------------------------------------------------------
+# 3. EXTRACCIÓN Y ORGANIZACIÓN DE CANALES
+# -----------------------------------------------------------------------------------
+# Se extraen los nombres de canales y se organizan los datos en estructuras
+# convenientes para el procesamiento:
+# - channels: vector con nombres de canales
+# - EEG_matrix: matriz (canales × muestras) con todos los datos
+# - dict_EEG: diccionario que mapea nombre de canal → señal (vector)
+#
+# El diccionario es especialmente útil porque permite acceso por nombre de canal
+# y facilita el procesamiento posterior en el pipeline.
 
-	has_numeric_samples = nrow(data_raw) > 0 && !isnothing(channel_col) && (size(data_raw, 2) > 1)
-	EEG_matrix = has_numeric_samples ? Matrix(data_raw[:, Not(channel_col)]) : Array{Float64}(undef, 0, 0)
-	channels = has_numeric_samples ? string.(data_raw[:, channel_col]) : String[]
-	dict_EEG = has_numeric_samples ? Dict(channels[i] => EEG_matrix[i, :] for i in 1:size(EEG_matrix, 1)) : Dict{String, Vector{Float64}}()
-	(channels = channels, EEG_matrix = EEG_matrix, dict_EEG = dict_EEG)
+println("📡 INFORMACIÓN DE CANALES")
+println("-" ^ 80)
+
+# Nombres de canales (primera columna del DataFrame)
+channels = data_raw.Channel
+
+# Matriz de datos EEG (canales × muestras)
+# Se excluye la columna "Channel" usando Not(:Channel)
+# Cada fila corresponde a un canal, cada columna a una muestra temporal
+EEG_matrix = Matrix(data_raw[:, Not(:Channel)])
+
+println("  Número de canales: $(length(channels))")
+println("  Canales: $(join(channels, ", "))")
+println()
+
+# Diccionario: canal → señal (vector de muestras)
+# Esta estructura facilita el acceso por nombre de canal y es compatible
+# con el resto del pipeline que espera datos organizados de esta manera
+dict_EEG = Dict(data_raw.Channel[i] => EEG_matrix[i, :]
+                for i in 1:size(data_raw, 1))
 end
 
 # ╔═╡ 70094435-8e89-4d22-a9de-fd8f0b2ac76d
 md"
 **Guardado de datos organizados**
+
+Se guarda el diccionario de canales en formato binario nativo de *Julia* (`dict_EEG.bin`). Este formato es eficiente para matrices grandes y permite serialización rápida de estructuras complejas. El archivo guardado será la entrada para el siguiente paso del pipeline (filtrado, corrección de línea base, etc.).
 "
 
 # ╔═╡ 66fa1086-568d-4eb8-a8ea-eb96f19dc6ef
 begin
-	cfg_io = @isdefined(cfg) ? cfg : nothing
-	dir_io = stage_dir(:IO; cfg = cfg_io)
-	isdir(dir_io) || mkpath(dir_io)
-	path_dict = joinpath(dir_io, "dict_EEG.bin")
-	Serialization.serialize(path_dict, dict_EEG)
-	"Diccionario EEG raw guardado en: $(abspath(path_dict))"
+# -----------------------------------------------------------------------------------
+# 4. GUARDADO DE DATOS ORGANIZADOS
+# -----------------------------------------------------------------------------------
+# Se guarda el diccionario de canales en formato binario nativo de Julia.
+# Este formato es eficiente para matrices grandes y permite serialización
+# rápida de estructuras complejas.
+#
+# El archivo guardado será la entrada para el siguiente paso del pipeline
+# (filtrado, corrección de línea base, etc.)
+
+# Directorio de salida para datos IO
+dir_io = stage_dir(:IO; cfg = cfg_local)
+path_dict = joinpath(dir_io, "dict_EEG.bin")
+
+# Asegurar que el directorio existe
+isdir(dir_io) || mkpath(dir_io)
+
+# Serializar y guardar el diccionario
+Serialization.serialize(path_dict, dict_EEG)
+
+println("💾 Diccionario EEG raw guardado en: $(abspath(path_dict))")
 end
 
 # ╔═╡ fef42c56-e8e2-4ec2-9ad0-6bc9d1f37772
 md"
 ## Control de calidad senales EEG
+
+Es necesario generar visualizaciones exploratorias en el dominio temporal/frecuencial. Estos gráficos se generan a partir de los **datos raw**. Estas visualizaciones ayudan a identificar:
+
+- Artefactos obvios (parpadeos, movimiento, ruido de línea).
+- Diferencias entre canales.
+- Calidad general del registro.
+
+Algunas notas prácticas para control de calidad de las señales **EEG**:
+
+- Un **canal plano** suele indicar desconexión del electrodo o fallo del amplificador.
+- **Picos estrechos** en **50/60 Hz** indican interferencia de red eléctrica.
+- **Exceso de potencia <1 Hz** puede deberse a mal contacto electrodo–piel o movimiento.
+- En registros con **ojos cerrados (EC)**, suele observarse aumento de potencia en **banda alfa (8–12 Hz)** en regiones occipitales.
+- Es recomendable marcar o excluir **canales sospechosos** antes de realizar análisis espectral o conectividad.
 "
 
 # ╔═╡ b4de8852-c51f-423f-be51-74f67f8404d2
 md"
 Tabla x: Graficas y estadisticas para la inspeccion y control de calidad de **EEG crudo**
+
+| Representación o estadístico | Propósito y uso |
+|---|---|
+| **Trazas crudas** (EEG vs. tiempo, vista multicanal apilada o desplazable) | Visualizar el comportamiento temporal de los canales, identificar artefactos o canales planos, comprobar la continuidad de la señal y localizar eventos; primera verificación de la integridad y sincronía de la grabación. |
+| **Mapa de impedancias** | Refleja la calidad del contacto electrodo–piel. Impedancias altas (>10–20 kΩ) suelen anticipar ruido o inestabilidad. Un mapa topográfico ayuda a detectar áreas problemáticas (p. ej., electrodos frontales secos). |
+| **Histograma de amplitud por canal** | Permite comprobar la amplitud típica por canal y detectar saturación, *clipping* o ruido excesivo. Una distribución simétrica centrada en cero y sin colas largas suele indicar buena calidad. |
+| **Topografía de varianza** | Resume la actividad media en el dominio espacial. Los canales con varianza (o desviación estándar) mucho mayor que el resto suelen estar contaminados por ruido o desconectados. |
+| **PSD media cruda por canal** | El espectro de potencia sin filtrar revela interferencias eléctricas (picos estrechos a 50/100 Hz) o mal acoplamiento (exceso de potencia en frecuencias muy bajas). Útil para planificar el filtrado. |
+| **Amplitud media, varianza o desviación estándar por canal** | Caracteriza el nivel de actividad basal y su variabilidad; permite comparar condiciones (p. ej., ojos abiertos vs. ojos cerrados) y detectar canales ruidosos o planos. |
+| **Potencia en bandas absoluta o relativa** | Cuantifica la potencia en bandas canónicas (δ, θ, α, β, γ); caracteriza el perfil espectral y facilita la comparación entre condiciones y la detección de artefactos. |
+| **Implementación** | Los pasos anteriores (carga de TSV, extracción temporal y de canales, gráficos temporales crudos y apilados, PSD y potencia por bandas, estadísticas por canal y marcado de canales sospechosos) están implementados en la rutina de Julia `src/IO.jl`. |
 "
 
 # ╔═╡ f3cfdba1-8641-4c5e-b9e4-f3f1138859ea
 md"
-**Grafico de un canal individual** (ejemplo: canal Cz).
+**Grafico de un canal individual** (ejemplo: canal Cz). El canal Cz (central) suele ser representativo de la actividad EEG general
 "
 
-# ╔═╡ 5f50f57b-a52a-4305-b8c8-1ad1d6de8c77
+# ╔═╡ 286ace1d-be59-4a0b-8b73-2ba751129850
 begin
-	chan = ("Cz" in keys(dict_EEG)) ? "Cz" : (isempty(keys(dict_EEG)) ? nothing : first(collect(keys(dict_EEG))))
-	p_cz = if isnothing(chan) || isempty(tiempo_seg)
-		plot(title = "Sin datos para graficar", legend = false)
-	else
-		Plots.plot(
-			tiempo_seg, dict_EEG[chan],
-			xlabel = "Tiempo (s)", ylabel = "Amplitud (uV)", title = "EEG - Canal $(chan)", legend = false
-		)
-	end
-	p_cz
+p_cz = plot(tiempo_seg, dict_EEG["Cz"], 
+xlabel = "Tiempo (s)", ylabel= "Amplitud (µV)", title="EEG - Canal Cz", legend = false)
+p_cz
 end
+
+# ╔═╡ 2a92ae15-c2c4-4b2c-8523-7f63475d5057
+md"
+En la representación de todos los **canales apilados**, cada canal se desplaza verticalmente para facilitar la comparación visual. Esta visualización permite detectar artefactos que afectan a múltiples canales. Una separación vertical entre canales (en µV) mayor aumenta la separación visual pero puede hacer que los detalles
+de amplitud sean menos visibles.
+"
 
 # ╔═╡ ab98be9e-c06f-4a9f-929f-0ab2b8ce6edf
 begin
-	sep = 80.0
-	offsets = [(length(channels) - i) * sep for i in 1:length(channels)]
-	pila = if isempty(channels) || isempty(tiempo_seg) || size(EEG_matrix, 2) == 0
-		plot(title = "Sin datos para grafico apilado", legend = false)
-	else
-		Plots.plot(
-			tiempo_seg, EEG_matrix' .+ offsets',
-			xlabel = "Tiempo (s)", ylabel = "", yticks = (offsets, channels),
-			legend = false, grid = false, size = (1000, 600)
-		)
-	end
-	pila
+# Separación vertical entre canales (en µV)
+# Un valor mayor aumenta la separación visual pero puede hacer que los detalles
+# de amplitud sean menos visibles
+sep = 80.0
+
+# Calcular offsets (posiciones Y) para cada canal
+# Los canales se apilan de arriba a abajo, con el primer canal en la parte superior
+offsets = [(length(channels) - i) * sep for i in 1:length(channels)]
+
+# Gráfico apilado
+# Se transpone EEG_matrix para que cada columna sea un canal
+# Se suman los offsets para desplazar verticalmente cada señal
+p = plot(
+    tiempo_seg,
+    EEG_matrix' .+ offsets',  # transpuesta + offsets para apilar
+    xlabel = "Tiempo (s)",
+    ylabel = "",
+    yticks = (offsets, channels),  # etiquetas Y con nombres de canales
+    legend = false,
+    grid = false,
+    size = (1000, 600)
+)
+p
 end
+
+# ╔═╡ 6668e05c-ec9f-44cb-a66f-ccb41b2f44dd
+md"
+En el **análisis estadístico** de control de calidad de las señales de los canales **EEG** se calculan estadísticas descriptivas para cada canal que permiten evaluar la calidad de los datos y detectar canales problemáticos:
+
+- **Mean**: valor medio (indica offset DC)
+- **Min/Max**: rango de amplitudes
+- **Std**: desviación estándar (variabilidad, ruido)
+- **RMS**: raíz cuadrada de la media de cuadrados (potencia promedio)
+- **Kurtosis**: medida de picos (valores altos indican outliers/artefactos)
+- **Skewness**: asimetría de la distribución
+
+De manera que los canales con **kurtosis** muy alta (>6) o desviación estándar muy baja (<5 µV) pueden indicar problemas (artefactos, canales muertos, etc.).
+"
 
 # ╔═╡ 2e4c5804-bdc9-4f53-bbc4-b3df6f82c145
 begin
-	stats_channels = isempty(channels) ? DataFrame(
-		:Channel => String[],
-		Symbol("Mean (uV)") => Float64[],
-		Symbol("Min (uV)") => Float64[],
-		Symbol("Max (uV)") => Float64[],
-		Symbol("Std (uV)") => Float64[],
-		Symbol("RMS (uV)") => Float64[],
-		:Kurtosis => Float64[],
-		:Skewness => Float64[],
-	) : DataFrame(
-		:Channel => channels,
-		Symbol("Mean (uV)") => mean.(eachrow(EEG_matrix)),
-		Symbol("Min (uV)") => minimum.(eachrow(EEG_matrix)),
-		Symbol("Max (uV)") => maximum.(eachrow(EEG_matrix)),
-		Symbol("Std (uV)") => std.(eachrow(EEG_matrix)),
-		Symbol("RMS (uV)") => rms.(eachrow(EEG_matrix)),
-		:Kurtosis => kurtosis.(eachrow(EEG_matrix)),
-		:Skewness => skewness.(eachrow(EEG_matrix)),
-	)
-	stats_channels
+# -----------------------------------------------------------------------------------
+# 8. ANÁLISIS ESTADÍSTICO DE CALIDAD DE CANALES
+# -----------------------------------------------------------------------------------
+# Se calculan estadísticas descriptivas para cada canal que permiten evaluar
+# la calidad de los datos y detectar canales problemáticos:
+# - Mean: valor medio (indica offset DC)
+# - Min/Max: rango de amplitudes
+# - Std: desviación estándar (variabilidad, ruido)
+# - RMS: raíz cuadrada de la media de cuadrados (potencia promedio)
+# - Kurtosis: medida de "picos" (valores altos indican outliers/artefactos)
+# - Skewness: asimetría de la distribución
+#
+# Canales con kurtosis muy alta (>6) o desviación estándar muy baja (<5 µV)
+# pueden indicar problemas (artefactos, canales muertos, etc.)
+
+
+# Calcular estadísticas para cada canal
+# eachrow itera sobre cada fila de la matriz (cada canal)
+stats_channels = DataFrame(
+    :Channel                 => channels,
+    Symbol("Mean (µV)")     => mean.(eachrow(EEG_matrix)),      # Media
+    Symbol("Min (µV)")      => minimum.(eachrow(EEG_matrix)),   # Mínimo
+    Symbol("Max (µV)")      => maximum.(eachrow(EEG_matrix)),  # Máximo
+    Symbol("Std (µV)")      => std.(eachrow(EEG_matrix)),       # Desviación estándar
+    Symbol("RMS (µV)")      => rms.(eachrow(EEG_matrix)),       # RMS (root mean square)
+    :Kurtosis                => kurtosis.(eachrow(EEG_matrix)), # Curtosis (medida de picos)
+    :Skewness                => skewness.(eachrow(EEG_matrix)), # Asimetría
+)
+stats_channels
 end
+
+# ╔═╡ 8b984de8-8ec4-46ac-adf0-0a2443774f24
+md"
+En un **histograma de la desviación estándar** **Std(μV)** por canales, se puede interpretar la variabilidad de los mismos. Valores muy bajos **(<5 µV)** pueden indicar canales muertos o con muy poca señal.
+"
 
 # ╔═╡ 3083f7e8-b7f8-4f91-a35d-b6720fc03fdc
-histogram(
-	stats_channels[!, Symbol("Std (uV)")],
-	bins = 20, xlabel = "Std (uV)", ylabel = "Numero de canales",
-	legend = false, title = "Distribucion de desviacion tipica por canal"
-)
-
-# ╔═╡ 6a5025f6-c6a7-43cb-9cdd-b6ea8cd3935e
-histogram(
-	stats_channels.Kurtosis,
-	bins = 20, xlabel = "Kurtosis", ylabel = "Numero de canales",
-	legend = false, title = "Distribucion de kurtosis por canal"
-)
-
-# ╔═╡ 93f4c2a7-907e-4d80-a4fc-f0f8fb70e92a
 begin
-	stds = stats_channels[!, Symbol("Std (uV)")]
-	kurts = stats_channels.Kurtosis
-	names_ = stats_channels.Channel
-	idx_raros = (kurts .> 6) .| (stds .< 5)
-	colors = ifelse.(idx_raros, :red, :blue)
-	scatter_p = Plots.scatter(
-		stds, kurts; color = colors, xlabel = "Std (uV)", ylabel = "Kurtosis",
-		title = "Calidad de canales EEG (Std vs Kurtosis)", legend = false
-	)
-	for i in eachindex(names_)
-		if idx_raros[i]
-			annotate!(scatter_p, stds[i] + 1.5, kurts[i] + 0.2, Plots.text(string(names_[i]), 6, :red))
-		end
-	end
-	scatter_p
+# Histograma de desviación estándar
+# La desviación estándar mide la variabilidad. Valores muy bajos (<5 µV)
+# pueden indicar canales muertos o con muy poca señal
+histogram(
+    stats_channels[!, Symbol("Std (µV)")],
+    bins   = 20,
+    xlabel = "Std (µV)",
+    ylabel = "Número de canales",
+    legend = false,
+    title  = "Distribución de desviación típica por canal"
+) 
 end
 
-# ╔═╡ a84f5e33-1c75-4a0c-95a6-5d17de525f59
+# ╔═╡ 530abe8f-3dc1-424f-a04c-b6a57e723d2f
 md"
-## Analisis Espectral
+En un **histograma de kurtosis** por canales, se puede ver qué tan **picuda** es la distribución. Como se ha dicho antes, valores altos **(>6)** pueden indicar presencia de artefactos (picos, spikes) o canales problemáticos.
+"
+
+# ╔═╡ 6a5025f6-c6a7-43cb-9cdd-b6ea8cd3935e
+begin
+# Histograma de kurtosis
+# La kurtosis mide qué tan "picuda" es la distribución. Valores altos (>6)
+# pueden indicar presencia de artefactos (picos, spikes) o canales problemáticos
+histogram(
+    stats_channels.Kurtosis,
+    bins = 20,
+    xlabel = "Kurtosis",
+    ylabel = "Número de canales",
+    legend = false,
+    title  = "Distribución de kurtosis por canal"
+)
+end
+
+# ╔═╡ ae0949bc-70b0-4cf2-9ab9-b5dc33e9b5ad
+md"
+**Detección de canales sospechosos** Se usa un gráfico de dispersión (Std vs Kurtosis) para identificar canales que se desvían de la distribución normal, lo cual puede indicar problemas.
+"
+
+# ╔═╡ 6ea65e96-4001-4795-b1f0-052db14cec52
+begin
+# -----------------------------------------------------------------------------------
+# 8.2. DETECCIÓN DE CANALES SOSPECHOSOS
+# -----------------------------------------------------------------------------------
+# Se usa un gráfico de dispersión (Std vs Kurtosis) para identificar canales
+# que se desvían de la distribución normal, lo cual puede indicar problemas.
+
+# Extraer variables para el scatter plot
+stds   = stats_channels[!, Symbol("Std (µV)")]
+kurts  = stats_channels.Kurtosis
+names_ = stats_channels.Channel
+
+# Criterio de canales sospechosos:
+# - Kurtosis > 6: distribución muy picuda (posibles artefactos)
+# - Std < 5 µV: variabilidad muy baja (posible canal muerto)
+idx_raros = (kurts .> 6) .| (stds .< 5)
+
+# Colores: rojo para sospechosos, azul para normales
+colors = ifelse.(idx_raros, :red, :blue)
+
+# Crear scatter plot
+p_scatter = scatter(
+    stds, kurts;
+    color  = colors,
+    xlabel = "Std (µV)",
+    ylabel = "Kurtosis",
+    title  = "Calidad de canales EEG (Std vs Kurtosis)",
+    legend = false,
+)
+
+# Añadir etiquetas SOLO a los canales sospechosos
+# Se desplazan ligeramente para mejor legibilidad
+offsetx = 1.5   # desplazamiento en X
+offsety = 0.2   # desplazamiento en Y
+
+for i in eachindex(names_)
+    if idx_raros[i]
+        annotate!(
+            p,
+            stds[i] + offsetx,
+            kurts[i] + offsety,
+            Plots.text(string(names_[i]), 6, :red)
+        )
+    end
+end
+p_scatter
+end
+
+# ╔═╡ 13177dee-e72f-4997-a204-e110ef7ea60c
+md"
+## Análisis Espectral
+
+El **análisis espectral** constituye una de las herramientas fundamentales en el estudio de señales **EEG**, ya que permite descomponer la actividad cerebral en sus distintas componentes de frecuencia. A diferencia del análisis en el dominio temporal, el enfoque espectral facilita la identificación de patrones rítmicos que están directamente relacionados con **estados cognitivos**, **procesos fisiológicos** y posibles **alteraciones patológicas**.
+
+En este contexto, la estimación de la **densidad de potencia espectral (PSD)** proporciona una medida cuantitativa de cómo se distribuye la **energía de la señal** a lo largo de las **frecuencias**. Esto resulta clave para caracterizar la dinámica cerebral, comparar condiciones experimentales y evaluar cambios en la actividad neuronal de forma objetiva.
+
+El **análisis espectral** es ampliamente utilizado en múltiples aplicaciones, como el estudio de estados de vigilia y sueño, la detección de anomalías (por ejemplo, actividad epiléptica), el análisis de ritmos asociados a funciones cognitivas (atención, memoria) y el desarrollo de interfaces cerebro-computador (BCI). Además, el **cálculo de potencia en bandas específicas** permite resumir la información de la señal en métricas interpretables y comparables entre sujetos o condiciones.
+
+En conjunto, estas herramientas convierten al **análisis espectral** en un componente esencial dentro de cualquier pipeline de procesamiento de **EEG**, proporcionando una base sólida para la interpretación funcional de la actividad cerebral.
+"
+
+# ╔═╡ 23b2f8f8-0133-46e9-a5d2-0c00aab6d2a4
+md"
+### Bandas espectrales
+
+Los análisis espectrales y de conectividad se realizaron dentro de **siete bandas de frecuencia predefinidas**. Estas bandas se seleccionaron en función de las convenciones neurofisiológicas estándar y de su relevancia para la dinámica del **EEG en estado de reposo**:
+
+| Banda | Rango de frecuencia | Interpretación neurofisiológica |
+|------|---------------------|--------------------------------|
+| $\delta$ | $0.5$–$4\ \text{Hz}$ | Actividad cortical lenta asociada al sueño profundo; incrementos anómalos en vigilia pueden indicar disfunción cortical difusa. |
+| $\theta$ | $4$–$8\ \text{Hz}$ | Relacionada con somnolencia, estados de baja vigilancia y procesos de memoria. |
+| $\alpha$ | $8$–$12\ \text{Hz}$ | Ritmo dominante en regiones occipitales durante reposo con **ojos cerrados**; marcador clásico del estado basal del EEG. |
+| $\beta_{\text{low}}$ | $12$–$15\ \text{Hz}$ | Asociada a actividad sensoriomotora y a estados de alerta moderada. |
+| $\beta_{\text{mid}}$ | $15$–$18\ \text{Hz}$ | Relacionada con procesos atencionales y actividad cortical sostenida. |
+| $\beta_{\text{high}}$ | $18$–$30\ \text{Hz}$ | Vinculada a procesamiento cognitivo activo y actividad motora; puede aumentar con tensión muscular. |
+| $\gamma$ | $30$–$50\ \text{Hz}$ | Oscilaciones rápidas asociadas al procesamiento cortical de orden superior e integración neuronal; susceptible a artefactos musculares. |
+
+La **banda δ** refleja actividad cortical lenta y puede indicar disfunción difusa cuando aparece anormalmente elevada.  
+El rango **θ** se asocia con somnolencia y con procesos relacionados con la memoria.  
+El **ritmo α** domina en regiones posteriores durante el reposo con **ojos cerrados** y constituye un marcador clásico del estado de reposo.
+
+Las **subbandas β** capturan procesos sensoriomotores y atencionales a frecuencias progresivamente más altas.  
+Por último, la **banda γ** refleja actividad oscilatoria rápida vinculada al procesamiento cortical de orden superior, aunque es más susceptible a artefactos musculares.
 "
 
 # ╔═╡ 98c1de45-f9cf-43ee-b903-5f6ca9897269
 begin
-	Δ = (0.5, 4.0)
-	δ = (4.0, 8.0)
-	α = (8.0, 12.0)
-	β_low = (12.0, 15.0)
-	β_medium = (15.0, 18.0)
-	β_high = (18.0, 30.0)
-	γ = (30.0, 50.0)
+# Nomenclatura de bandas alineada con Pluto/BIDS/BIDS.jl
+Δ = (0.5, 4.0)
+δ = (4.0, 8.0)
+α = (8.0, 12.0)
+β_low = (12.0, 15.0)
+β_medium = (15.0, 18.0)
+β_high = (18.0, 30.0)
+γ = (30.0, 50.0)
 
-	band_limits = Dict(:Δ => Δ, :δ => δ, :α => α, :β_low => β_low, :β_medium => β_medium, :β_high => β_high, :γ => γ)
-	ordered_bands = [:Δ, :δ, :α, :β_low, :β_medium, :β_high, :γ]
-	band_labels = Dict(
-		:Δ => "DELTA (0.5-4)", :δ => "THETA (4-8)", :α => "ALPHA (8-12)",
-		:β_low => "BETA LOW (12-15)", :β_medium => "BETA MID (15-18)",
-		:β_high => "BETA HIGH (18-30)", :γ => "GAMMA (30-50)"
-	)
-	band_colors = [:lightcyan, :lavender, :lightgoldenrod, :lightgreen, :lightsalmon, :lightpink, :lightgray]
-	(; band_limits, ordered_bands, band_labels, band_colors)
+band_limits = Dict(:Δ => Δ, :δ => δ, :α => α, :β_low => β_low, :β_medium => β_medium, :β_high => β_high, :γ => γ)
+ordered_bands = [:Δ, :δ, :α, :β_low, :β_medium, :β_high, :γ]
+band_labels = Dict(
+    :Δ => "DELTA (0.5-4)", :δ => "THETA (4-8)", :α => "ALPHA (8-12)",
+    :β_low => "BETA LOW (12-15)", :β_medium => "BETA MID (15-18)",
+    :β_high => "BETA HIGH (18-30)", :γ => "GAMMA (30-50)"
+)
+
+# Colores para visualización de bandas en gráficos
+band_colors = [:lightcyan, :lavender, :lightgoldenrod, :lightgreen, :lightsalmon, :lightpink, :lightgray]
 end
 
 # ╔═╡ e2643d97-07f8-4fd4-b4ad-9e36b340f6e6
 begin
-	PSD = Dict(channel => begin
-		p = welch_pgram(dict_EEG[channel]; fs = fs, window = hamming, nfft = max(n_muestras, 2))
-		(; freq = DSP.freq(p), power = DSP.power(p))
-	end for channel in channels)
-	PSD
+PSD = Dict(channel => begin
+p = welch_pgram(dict_EEG[channel]; fs=fs, window=hamming, nfft=n_muestras)
+# Extraer frecuencias y potencias del periodograma
+(; freq = DSP.freq(p), power = DSP.power(p))
+end for channel in channels)
+PSD
 end
+
+# ╔═╡ 8f52ce15-6075-4c01-8361-4c18b4aae41a
+md"
+### Densidad de Potencia Espectral (PSD)
+
+Se calcula la **densidad de potencia espectral (PSD)** usando el **método de Welch**, que divide la señal en segmentos superpuestos, aplica ventanas (**Hamming**) y promedia los periodogramas.
+
+La **PSD** muestra cómo se distribuye la potencia de la señal en el dominio frecuencial, lo cual es esencial para:
+
+- Identificar bandas de frecuencia dominantes (α, β, etc.)
+- Detectar ruido de línea (50/60 Hz)
+- Evaluar la calidad espectral de cada canal
+- Comparar características espectrales entre canales
+
+Los parámetros fundamentales para calcular la **PSD** son los siguientes:
+
+- **fs**: frecuencia de muestreo (necesaria para escalar frecuencias)
+- **window**: tipo de ventana (**Hamming** reduce leakage espectral)
+- **nfft**: tamaño de **FFT** (usar n_muestras para máxima resolución)
+
+---
+
+### Visualización de la PSD
+
+Se superponen todas las **PSD**, canales superpuestos, para comparar características espectrales entre canales. La escala logarítmica facilita visualizar rangos amplios de potencia.
+"
 
 # ╔═╡ 50bb2eb0-d367-4f48-a8db-c5d4db35e7f4
 begin
-	if isempty(channels)
-		plot(title = "Sin datos para PSD", legend = false)
-	else
-		all_powers = vcat([PSD[ch].power for ch in channels]...)
-		power_min_all, power_max_all = extrema(all_powers)
-		y_min_log_all = floor(log10(max(power_min_all, eps())))
-		y_max_log_all = ceil(log10(max(power_max_all, eps())))
-		ylim_log_all = (10.0^y_min_log_all, 10.0^y_max_log_all)
-
-		p_psd = Plots.plot(
-			xlabel = "Frecuencia (Hz)", ylabel = "Potencia (uV^2/Hz)",
-			title = "PSD por canal (Welch)", legend = :right, xlim = (0, fs / 2),
-			yscale = :log10, ylim = ylim_log_all
-		)
-		for channel in channels
-			Plots.plot!(p_psd, PSD[channel].freq, PSD[channel].power; label = channel, lw = 1)
-		end
-		p_psd
-	end
+# Calcular límites Y amigables para escala logarítmica
+# Se buscan potencias de 10 que enmarquen todos los datos
+all_powers = vcat([PSD[ch].power for ch in channels]...)
+all_powers_pos = filter(>(0), all_powers)
+if isempty(all_powers_pos)
+    error("No hay potencias positivas para graficar en escala log10.")
 end
+power_min_all, power_max_all = extrema(all_powers_pos)
+if power_max_all <= power_min_all
+    power_max_all = power_min_all * 10
+end
+y_min_log_all = floor(log10(power_min_all))
+y_max_log_all = ceil(log10(power_max_all))
+ylim_log_all = (10.0^y_min_log_all, 10.0^y_max_log_all)
+
+# Gráfico de PSD superpuestas
+p_psd = plot(
+    xlabel = "Frecuencia (Hz)",
+    ylabel = "Potencia (µV²/Hz)",
+    title = "PSD por canal (Welch)",
+    legend = :right,
+    xlim = (0, fs / 2),  # Frecuencia de Nyquist = fs/2
+    yscale = :log10,     # Escala logarítmica para mejor visualización
+    ylim = ylim_log_all,
+)
+
+# Añadir cada canal al gráfico
+for channel in channels
+    plot!(p_psd, PSD[channel].freq, PSD[channel].power; label = channel, lw = 1)
+end
+p_psd
+end
+
+# ╔═╡ ad3ebb32-88af-4f4d-8aac-e35f4ee76aee
+md"
+### Cálculo de potencia por banda
+
+El **cálculo de la potencia integrada por banda** se realiza a partir del cálculo de la potencia total en cada banda de frecuencia para cada canal.
+La potencia se integra sumando las densidades espectrales dentro de cada banda y multiplicando por la **resolución espectral (df)**.
+
+Esto permite cuantificar:
+
+- Qué bandas dominan en cada canal
+- Distribución relativa de potencia entre bandas
+- Comparaciones entre canales
+"
 
 # ╔═╡ c4d34a8d-ad3d-44f6-934d-cf5c14670440
 begin
-	band_powers = Dict(channel => begin
-		freqs = PSD[channel].freq
-		powers = PSD[channel].power
-		df = freqs[2] - freqs[1]
-		Dict(
-			band => begin
-				idx = (freqs .>= limits[1]) .& (freqs .< limits[2])
-				sum(powers[idx]) * df
-			end
-			for (band, limits) in band_limits
-		)
-	end for channel in channels)
-	band_powers
+# Calcular potencia integrada por banda para cada canal
+# La integración se hace sumando las densidades de potencia en cada banda
+# y multiplicando por la resolución espectral (df = diferencia entre frecuencias)
+band_powers = Dict(channel => begin
+    freqs = PSD[channel].freq
+    powers = PSD[channel].power
+    
+    # Resolución espectral: diferencia entre frecuencias adyacentes
+    # Esto es necesario para convertir densidad (µV²/Hz) en potencia total (µV²)
+    df = freqs[2] - freqs[1]
+    
+    # Para cada banda, sumar las potencias dentro del rango de frecuencias
+    Dict(
+        band => begin
+            # Índices de frecuencias dentro de la banda [f_min, f_max)
+            idx = (freqs .>= limits[1]) .& (freqs .< limits[2])
+            # Potencia integrada = suma de densidades × resolución
+            sum(powers[idx]) * df
+        end
+        for (band, limits) in band_limits
+    )
+end for channel in channels)
 end
 
 # ╔═╡ 4d28c8d4-c1fc-4c7d-bcc8-09e8f568b0f6
 begin
-	band_powers_df = DataFrame(Band = [band_labels[band] for band in ordered_bands])
-	channel_totals = Dict{String, Float64}()
-	for channel in channels
-		values = [band_powers[channel][band] for band in ordered_bands]
-		total_power = sum(values)
-		channel_totals[channel] = total_power
-		band_powers_df[!, Symbol(channel)] = values
-		band_powers_df[!, Symbol(channel * "_pct")] = total_power ≈ 0 ? zeros(length(values)) : (values ./ total_power)
-	end
-	total_row_pairs = Any[:Band => "TOTAL POWER"]
-	for channel in channels
-		push!(total_row_pairs, Symbol(channel) => channel_totals[channel])
-		push!(total_row_pairs, Symbol(channel * "_pct") => 1.0)
-	end
-	total_row = (; total_row_pairs...)
-	vcat(DataFrame([total_row]), band_powers_df; cols = :union)
+# Crear DataFrame con potencias por banda y canal
+band_powers_df = DataFrame(Band = [band_labels[band] for band in ordered_bands])
+channel_totals = Dict{String, Float64}()
+
+# Añadir columnas para cada canal (potencia absoluta y porcentaje)
+for channel in channels
+    values = [band_powers[channel][band] for band in ordered_bands]
+    total_power = sum(values)
+    channel_totals[channel] = total_power
+    
+    # Potencia absoluta en µV²
+    band_powers_df[!, Symbol(channel)] = values
+    
+    # Potencia relativa (porcentaje del total)
+    # Evita división por cero si total_power es muy pequeño
+    band_powers_df[!, Symbol(channel * "_pct")] = total_power ≈ 0 ? zeros(length(values)) : (values ./ total_power)
+end
+
+# Añadir fila de totales
+total_row_pairs = Any[:Band => "TOTAL POWER"]
+for channel in channels
+    push!(total_row_pairs, Symbol(channel) => channel_totals[channel])
+    push!(total_row_pairs, Symbol(channel * "_pct") => 1.0)
+end
+total_row = (; total_row_pairs...)
+
+# Combinar fila de totales con el resto del DataFrame
+band_powers_df = vcat(DataFrame([total_row]), band_powers_df; cols = :union)
+
+band_powers_df
 end
 
 # ╔═╡ 2962c98d-6b35-42cf-9dfa-30ecebe4f38b
@@ -740,83 +1024,130 @@ Visualización equivalente a la rutina `IO.jl`, con sombreado por bandas EEG par
 
 # ╔═╡ 61ec2843-f706-41f3-9eb2-8bad3e1ea3ca
 begin
-	if isempty(channels)
-		plot(title = "Sin datos para PSD promedio", legend = false)
-	else
-		freqs_avg = PSD[first(channels)].freq
-		avg_power = mapreduce(ch -> PSD[ch].power, +, channels) ./ length(channels)
-		power_min, power_max = extrema(avg_power)
-		y_min_log = floor(log10(max(power_min, eps())))
-		y_max_log = ceil(log10(max(power_max, eps())))
-		ylim_log = (10.0^y_min_log, 10.0^y_max_log)
+# -----------------------------------------------------------------------------------
+# 6.3. VISUALIZACIÓN DE PSD PROMEDIO CON BANDAS DE FRECUENCIA
+# -----------------------------------------------------------------------------------
+# Se calcula la PSD promedio de todos los canales y se visualiza con las bandas
+# de frecuencia marcadas. Esto proporciona una visión general del contenido
+# espectral del registro y ayuda a identificar qué bandas dominan.
 
-		p_psd_avg = plot(
-			xlabel = "Frecuencia (Hz)",
-			ylabel = "Potencia (uV^2/Hz)",
-			title = "PSD promedio de todos los canales",
-			legend = :outerright,
-			xlim = (0, fs / 2),
-			yscale = :log10,
-			ylim = ylim_log,
-		)
+# Crear gráfico base
+p_psd_avg = plot(
+    xlabel = "Frecuencia (Hz)",
+    ylabel = "Potencia (µV²/Hz)",
+    title = "PSD promedio de todos los canales",
+    legend = :outerright,
+    xlim = (0, fs / 2),
+    yscale = :log10,
+)
 
-		for (idx, band) in enumerate(ordered_bands)
-			limits = band_limits[band]
-			plot!(
-				p_psd_avg,
-				[limits[1], limits[2]],
-				[power_max, power_max];
-				fillrange = power_min,
-				fillcolor = band_colors[idx],
-				fillalpha = 0.25,
-				linecolor = :transparent,
-				label = band_labels[band],
-			)
-		end
+# Calcular PSD promedio
+# Se asume que todos los canales tienen las mismas frecuencias (mismo nfft)
+freqs_avg = PSD[first(channels)].freq
 
-		plot!(p_psd_avg, freqs_avg, avg_power; label = "Promedio", lw = 2, color = :black)
-		p_psd_avg
-	end
+# Promediar potencias de todos los canales
+# mapreduce suma todas las potencias y luego divide por el número de canales
+avg_power = mapreduce(ch -> PSD[ch].power, +, channels) ./ length(channels)
+
+# Calcular límites de potencia para escala Y
+avg_power_pos = filter(>(0), avg_power)
+if isempty(avg_power_pos)
+    error("La PSD promedio no contiene valores positivos para escala log10.")
+end
+power_min, power_max = extrema(avg_power_pos)
+if power_max <= power_min
+    power_max = power_min * 10
+end
+
+# Calcular límites Y amigables para escala logarítmica (potencias de 10)
+y_min_log = floor(log10(power_min))
+y_max_log = ceil(log10(power_max))
+ylim_log = (10.0^y_min_log, 10.0^y_max_log)
+
+# Actualizar el gráfico con límites Y explícitos
+plot!(p_psd_avg, ylim = ylim_log)
+
+# Añadir regiones sombreadas para cada banda de frecuencia
+# fillrange crea un área sombreada entre límites positivos en cada banda
+for (idx, band) in enumerate(ordered_bands)
+    limits = band_limits[band]
+    plot!(
+        p_psd_avg,
+        [limits[1], limits[2]],      # límites de frecuencia en X
+        [power_max, power_max];      # altura superior del sombreado
+        fillrange = power_min,       # altura inferior del sombreado
+        fillcolor = band_colors[idx], # color de la banda
+        fillalpha = 0.25,            # transparencia
+        linecolor = :transparent,    # sin borde
+        label = band_labels[band],   # etiqueta para leyenda
+    )
+end
+
+# Añadir línea de PSD promedio
+plot!(p_psd_avg, freqs_avg, avg_power; label = "Promedio", lw = 2, color = :black)
+
+p_psd_avg
 end
 
 # ╔═╡ 8ad9dcae-9ea1-4eb1-bf41-12db11170ad1
 md"""
-### Comparación con referencia externa
+### Comparación con datos Javier Espuny
 
 Carga opcional del archivo de referencia espectral (`M5T2cerrados.txt`) para contrastar resultados del notebook frente a una salida externa.
 """
 
 # ╔═╡ 8bc13219-3baf-41d7-bf8d-3bc0e09be6bb
 begin
-	path_candidates = [
-		joinpath(project_root(), "Javier_results", "M5T2cerrados.txt"),
-		joinpath(@__DIR__, "..", "Javier_results", "M5T2cerrados.txt"),
-	]
-	existing_paths = filter(isfile, path_candidates)
-	path_javier = isempty(existing_paths) ? "" : first(existing_paths)
+# -----------------------------------------------------------------------------------
+# 7. COMPARACIÓN CON RESULTADOS DE REFERENCIA (BrainVision Analyzer)
+# -----------------------------------------------------------------------------------
+# Se cargan resultados espectrales obtenidos con BrainVision Analyzer (software
+# comercial de análisis EEG) para comparación y validación.
+#
+# NOTA: Los valores de referencia pueden representar:
+# - Mean Activity: densidad media de potencia en la banda (µV²/Hz)
+# - Area: potencia integrada en la banda (µV²)
+#
+# La comparación permite verificar que el procesamiento en Julia produce
+# resultados consistentes con herramientas estándar del campo.
+# "real" (µV²/Hz) o un simple "Area" (µV²) para la potencia total.
 
-	Javier_results = if !isempty(path_javier)
-		lines_javier = filter(x -> !isempty(strip(x)), readlines(path_javier))
-		header = split(strip(lines_javier[1]), r"\s{2,}")
-		channels_javier = header[2:end]
-		rows_javier = [split(strip(line), r"\s{2,}") for line in lines_javier[2:end]]
-		bands_javier = first.(rows_javier)
-		numbers = [
-			parse(Float64, replace(rows_javier[i][j], ',' => '.'))
-			for i in eachindex(rows_javier), j in 2:length(header)
-		]
+# Ruta al archivo de resultados de referencia
+path_candidates = [
+    joinpath(project_root(), "Javier_results", "M5T2cerrados.txt"),      # layout actual (raíz del proyecto)
+    joinpath(@__DIR__, "..", "Javier_results", "M5T2cerrados.txt"),      # compatibilidad legacy
+]
+existing_paths = filter(isfile, path_candidates)
+path_javier = isempty(existing_paths) ? "" : first(existing_paths)
+if isempty(path_javier)
+    error("No se encontró M5T2cerrados.txt en: $(join(path_candidates, " | "))")
+end
 
-		df = DataFrame(Band = bands_javier)
-		for (col_idx, channel) in enumerate(channels_javier)
-			df[!, Symbol(channel)] = numbers[:, col_idx]
-		end
-		df
-	else
-		@warn "No se encontró archivo de referencia espectral." path_candidates
-		DataFrame(Band = String[])
-	end
+# Leer líneas del archivo y filtrar líneas vacías
+lines_javier = filter(x -> !isempty(strip(x)), readlines(path_javier))
 
-	Javier_results
+# Parsear encabezado (primera línea)
+# Se separa por espacios múltiples (2 o más)
+header = split(strip(lines_javier[1]), r"\s{2,}")
+channels_javier = header[2:end]  # Primera columna es "Band", resto son canales
+
+# Parsear filas de datos
+rows_javier = [split(strip(line), r"\s{2,}") for line in lines_javier[2:end]]
+bands_javier = first.(rows_javier)  # Primera columna de cada fila es el nombre de banda
+
+# Parsear números (convertir comas a puntos para formato decimal)
+numbers = [
+    parse(Float64, replace(rows_javier[i][j], ',' => '.'))
+    for i in eachindex(rows_javier), j in 2:length(header)
+]
+
+# Construir DataFrame con resultados de referencia
+Javier_results = DataFrame(Band = bands_javier)
+for (col_idx, channel) in enumerate(channels_javier)
+    Javier_results[!, Symbol(channel)] = numbers[:, col_idx]
+end
+
+Javier_results
 end
 
 # ╔═╡ f7193f9f-0d48-4e8e-bf11-0aaf67b9f04d
@@ -835,19 +1166,23 @@ CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DSP = "717857b8-e6f2-59f4-9121-6e50c889abd2"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 
 [compat]
 CSV = "~0.10.16"
 DSP = "~0.8.4"
 DataFrames = "~1.8.1"
+FFTW = "~1.10.0"
 Plots = "~1.41.6"
 PlutoUI = "~0.7.79"
 StatsBase = "~0.34.10"
+StatsPlots = "~0.15.8"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -856,27 +1191,40 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.3"
 manifest_format = "2.0"
-project_hash = "2198751aa0a12e3de59d3128f321227881a32ce2"
+project_hash = "d530016d602be709656807f6199f79c1ac9f1ac6"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "d92ad398961a3ed262d8bf04a1a2b8340f915fef"
 uuid = "621f4979-c628-5d54-868e-fcf4e3e8185c"
 version = "1.5.0"
+weakdeps = ["ChainRulesCore", "Test"]
 
     [deps.AbstractFFTs.extensions]
     AbstractFFTsChainRulesCoreExt = "ChainRulesCore"
     AbstractFFTsTestExt = "Test"
-
-    [deps.AbstractFFTs.weakdeps]
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
 git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
 version = "1.3.2"
+
+[[deps.AbstractTrees]]
+git-tree-sha1 = "2d9c9a55f9c93e8887ad391fbae72f8ef55e1177"
+uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+version = "0.4.5"
+
+[[deps.Adapt]]
+deps = ["LinearAlgebra", "Requires"]
+git-tree-sha1 = "35ea197a51ce46fcd01c4a44befce0578a1aaeca"
+uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+version = "4.5.0"
+weakdeps = ["SparseArrays", "StaticArrays"]
+
+    [deps.Adapt.extensions]
+    AdaptSparseArraysExt = "SparseArrays"
+    AdaptStaticArraysExt = "StaticArrays"
 
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
@@ -888,9 +1236,27 @@ version = "1.1.3"
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
 version = "1.1.2"
 
+[[deps.Arpack]]
+deps = ["Arpack_jll", "Libdl", "LinearAlgebra", "Logging"]
+git-tree-sha1 = "9b9b347613394885fd1c8c7729bfc60528faa436"
+uuid = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
+version = "0.5.4"
+
+[[deps.Arpack_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "libblastrampoline_jll"]
+git-tree-sha1 = "7f54761502ff149a9d492e4acefe9805898e29b3"
+uuid = "68821587-b530-5797-8361-c406ea357684"
+version = "3.5.2+0"
+
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 version = "1.11.0"
+
+[[deps.AxisAlgorithms]]
+deps = ["LinearAlgebra", "Random", "SparseArrays", "WoodburyMatrices"]
+git-tree-sha1 = "01b8ccb13d68535d73d2b0c23e39bd23155fb712"
+uuid = "13072b0f-2c55-5437-9ae7-d433b7a33950"
+version = "1.1.0"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
@@ -923,6 +1289,22 @@ deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "Fontconfig_jl
 git-tree-sha1 = "a21c5464519504e41e0cbc91f0188e8ca23d7440"
 uuid = "83423d85-b0ee-5818-9007-b63ccbeb887a"
 version = "1.18.5+1"
+
+[[deps.ChainRulesCore]]
+deps = ["Compat", "LinearAlgebra"]
+git-tree-sha1 = "e4c6a16e77171a5f5e25e9646617ab1c276c5607"
+uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+version = "1.26.0"
+weakdeps = ["SparseArrays"]
+
+    [deps.ChainRulesCore.extensions]
+    ChainRulesCoreSparseArraysExt = "SparseArrays"
+
+[[deps.Clustering]]
+deps = ["Distances", "LinearAlgebra", "NearestNeighbors", "Printf", "Random", "SparseArrays", "Statistics", "StatsBase"]
+git-tree-sha1 = "3e22db924e2945282e70c33b75d4dde8bfa44c94"
+uuid = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+version = "0.15.8"
 
 [[deps.CodecZlib]]
 deps = ["TranscodingStreams", "Zlib_jll"]
@@ -1013,12 +1395,10 @@ deps = ["Bessels", "FFTW", "IterTools", "LinearAlgebra", "Polynomials", "Random"
 git-tree-sha1 = "5989debfc3b38f736e69724818210c67ffee4352"
 uuid = "717857b8-e6f2-59f4-9121-6e50c889abd2"
 version = "0.8.4"
+weakdeps = ["OffsetArrays"]
 
     [deps.DSP.extensions]
     OffsetArraysExt = "OffsetArrays"
-
-    [deps.DSP.weakdeps]
-    OffsetArrays = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
@@ -1058,6 +1438,38 @@ deps = ["Mmap"]
 git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
+
+[[deps.Distances]]
+deps = ["LinearAlgebra", "Statistics", "StatsAPI"]
+git-tree-sha1 = "c7e3a542b999843086e2f29dac96a618c105be1d"
+uuid = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
+version = "0.10.12"
+weakdeps = ["ChainRulesCore", "SparseArrays"]
+
+    [deps.Distances.extensions]
+    DistancesChainRulesCoreExt = "ChainRulesCore"
+    DistancesSparseArraysExt = "SparseArrays"
+
+[[deps.Distributed]]
+deps = ["Random", "Serialization", "Sockets"]
+uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+version = "1.11.0"
+
+[[deps.Distributions]]
+deps = ["AliasTables", "FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SpecialFunctions", "Statistics", "StatsAPI", "StatsBase", "StatsFuns"]
+git-tree-sha1 = "fbcc7610f6d8348428f722ecbe0e6cfe22e672c6"
+uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
+version = "0.25.123"
+
+    [deps.Distributions.extensions]
+    DistributionsChainRulesCoreExt = "ChainRulesCore"
+    DistributionsDensityInterfaceExt = "DensityInterface"
+    DistributionsTestExt = "Test"
+
+    [deps.Distributions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
+    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [[deps.DocStringExtensions]]
 git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
@@ -1099,6 +1511,12 @@ git-tree-sha1 = "66381d7059b5f3f6162f28831854008040a4e905"
 uuid = "b22a6f82-2f65-5046-a5b2-351ab43fb4e5"
 version = "8.0.1+1"
 
+[[deps.FFTA]]
+deps = ["AbstractFFTs", "DocStringExtensions", "LinearAlgebra", "MuladdMacro", "Primes", "Random", "Reexport"]
+git-tree-sha1 = "65e55303b72f4a567a51b174dd2c47496efeb95a"
+uuid = "b86e33f2-c0db-4aa1-a6e0-ab43e668529e"
+version = "0.3.1"
+
 [[deps.FFTW]]
 deps = ["AbstractFFTs", "FFTW_jll", "Libdl", "LinearAlgebra", "MKL_jll", "Preferences", "Reexport"]
 git-tree-sha1 = "97f08406df914023af55ade2f843c39e99c5d969"
@@ -1125,6 +1543,19 @@ weakdeps = ["Mmap", "Test"]
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
+
+[[deps.FillArrays]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "2f979084d1e13948a3352cf64a25df6bd3b4dca3"
+uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
+version = "1.16.0"
+weakdeps = ["PDMats", "SparseArrays", "StaticArrays", "Statistics"]
+
+    [deps.FillArrays.extensions]
+    FillArraysPDMatsExt = "PDMats"
+    FillArraysSparseArraysExt = "SparseArrays"
+    FillArraysStaticArraysExt = "StaticArrays"
+    FillArraysStatisticsExt = "Statistics"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -1225,6 +1656,12 @@ git-tree-sha1 = "f923f9a774fcf3f5cb761bfa43aeadd689714813"
 uuid = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
 version = "8.5.1+0"
 
+[[deps.HypergeometricFunctions]]
+deps = ["LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
+git-tree-sha1 = "68c173f4f449de5b438ee67ed0c9c748dc31a2ec"
+uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
+version = "0.3.28"
+
 [[deps.Hyperscript]]
 deps = ["Test"]
 git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
@@ -1256,6 +1693,11 @@ version = "1.4.5"
     ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
     Parsers = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 
+[[deps.IntegerMathUtils]]
+git-tree-sha1 = "4c1acff2dc6b6967e7e750633c50bc3b8d83e617"
+uuid = "18e54dd8-cb9d-406c-a71d-865a43cbb235"
+version = "0.1.3"
+
 [[deps.IntelOpenMP_jll]]
 deps = ["Artifacts", "JLLWrappers", "LazyArtifacts", "Libdl"]
 git-tree-sha1 = "ec1debd61c300961f98064cfb21287613ad7f303"
@@ -1266,6 +1708,20 @@ version = "2025.2.0+0"
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
+
+[[deps.Interpolations]]
+deps = ["Adapt", "AxisAlgorithms", "ChainRulesCore", "LinearAlgebra", "OffsetArrays", "Random", "Ratios", "SharedArrays", "SparseArrays", "StaticArrays", "WoodburyMatrices"]
+git-tree-sha1 = "65d505fa4c0d7072990d659ef3fc086eb6da8208"
+uuid = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
+version = "0.16.2"
+
+    [deps.Interpolations.extensions]
+    InterpolationsForwardDiffExt = "ForwardDiff"
+    InterpolationsUnitfulExt = "Unitful"
+
+    [deps.Interpolations.weakdeps]
+    ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.InvertedIndices]]
 git-tree-sha1 = "6da3c4316095de0f5ee2ebd875df8721e7e0bdbe"
@@ -1321,6 +1777,12 @@ version = "3.1.4+0"
 deps = ["StyledStrings"]
 uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
+
+[[deps.KernelDensity]]
+deps = ["Distributions", "DocStringExtensions", "FFTA", "Interpolations", "StatsBase"]
+git-tree-sha1 = "4260cfc991b8885bf747801fb60dd4503250e478"
+uuid = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
+version = "0.6.11"
 
 [[deps.LAME_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1522,15 +1984,46 @@ version = "1.11.0"
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2025.5.20"
 
+[[deps.MuladdMacro]]
+git-tree-sha1 = "cac9cc5499c25554cba55cd3c30543cff5ca4fab"
+uuid = "46d2c3a1-f734-5fdb-9937-b9b9aeba4221"
+version = "0.2.4"
+
+[[deps.MultivariateStats]]
+deps = ["Arpack", "Distributions", "LinearAlgebra", "SparseArrays", "Statistics", "StatsAPI", "StatsBase"]
+git-tree-sha1 = "816620e3aac93e5b5359e4fdaf23ca4525b00ddf"
+uuid = "6f286f6a-111f-5878-ab1e-185364afe411"
+version = "0.10.3"
+
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
 git-tree-sha1 = "9b8215b1ee9e78a293f99797cd31375471b2bcae"
 uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "1.1.3"
 
+[[deps.NearestNeighbors]]
+deps = ["AbstractTrees", "Distances", "StaticArrays"]
+git-tree-sha1 = "e2c3bba08dd6dedfe17a17889131b885b8c082f0"
+uuid = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
+version = "0.4.27"
+
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.3.0"
+
+[[deps.Observables]]
+git-tree-sha1 = "7438a59546cf62428fc9d1bc94729146d37a7225"
+uuid = "510215fc-4207-5dde-b226-833fc4488ee2"
+version = "0.5.5"
+
+[[deps.OffsetArrays]]
+git-tree-sha1 = "117432e406b5c023f665fa73dc26e79ec3630151"
+uuid = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
+version = "1.17.0"
+weakdeps = ["Adapt"]
+
+    [deps.OffsetArrays.extensions]
+    OffsetArraysAdaptExt = "Adapt"
 
 [[deps.Ogg_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1580,6 +2073,16 @@ version = "1.8.1"
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
 version = "10.44.0+1"
+
+[[deps.PDMats]]
+deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
+git-tree-sha1 = "e4cff168707d441cd6bf3ff7e4832bdf34278e4a"
+uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
+version = "0.11.37"
+weakdeps = ["StatsBase"]
+
+    [deps.PDMats.extensions]
+    StatsBaseExt = "StatsBase"
 
 [[deps.Pango_jll]]
 deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "FriBidi_jll", "Glib_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl"]
@@ -1696,6 +2199,12 @@ version = "3.2.3"
     [deps.PrettyTables.weakdeps]
     Typstry = "f0ed7684-a786-439e-b1e3-3b82803b501e"
 
+[[deps.Primes]]
+deps = ["IntegerMathUtils"]
+git-tree-sha1 = "25cdd1d20cd005b52fc12cb6be3f75faaf59bb9b"
+uuid = "27ebfcd6-29c5-5fa9-bf4b-fb8fc14df3ae"
+version = "0.5.7"
+
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -1736,6 +2245,18 @@ git-tree-sha1 = "672c938b4b4e3e0169a07a5f227029d4905456f2"
 uuid = "e99dba38-086e-5de3-a5b1-6e4c66e897c3"
 version = "6.10.2+1"
 
+[[deps.QuadGK]]
+deps = ["DataStructures", "LinearAlgebra"]
+git-tree-sha1 = "9da16da70037ba9d701192e27befedefb91ec284"
+uuid = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
+version = "2.11.2"
+
+    [deps.QuadGK.extensions]
+    QuadGKEnzymeExt = "Enzyme"
+
+    [deps.QuadGK.weakdeps]
+    Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+
 [[deps.REPL]]
 deps = ["InteractiveUtils", "JuliaSyntaxHighlighting", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -1745,6 +2266,16 @@ version = "1.11.0"
 deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 version = "1.11.0"
+
+[[deps.Ratios]]
+deps = ["Requires"]
+git-tree-sha1 = "1342a47bf3260ee108163042310d26f2be5ec90b"
+uuid = "c84ed2f1-dad5-54f0-aa8e-dbefe2724439"
+version = "0.4.5"
+weakdeps = ["FixedPointNumbers"]
+
+    [deps.Ratios.extensions]
+    RatiosFixedPointNumbersExt = "FixedPointNumbers"
 
 [[deps.RecipesBase]]
 deps = ["PrecompileTools"]
@@ -1775,6 +2306,18 @@ git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
+[[deps.Rmath]]
+deps = ["Random", "Rmath_jll"]
+git-tree-sha1 = "5b3d50eb374cea306873b371d3f8d3915a018f0b"
+uuid = "79098fc4-a85e-5d69-aa6a-4863f24498fa"
+version = "0.9.0"
+
+[[deps.Rmath_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "58cdd8fb2201a6267e1db87ff148dd6c1dbd8ad8"
+uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
+version = "0.5.1+0"
+
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 version = "0.7.0"
@@ -1800,6 +2343,11 @@ deps = ["ConstructionBase", "Future", "MacroTools", "StaticArraysCore"]
 git-tree-sha1 = "c5391c6ace3bc430ca630251d02ea9687169ca68"
 uuid = "efcf1570-3423-57d1-acb7-fd33fddbac46"
 version = "1.1.2"
+
+[[deps.SharedArrays]]
+deps = ["Distributed", "Mmap", "Random", "Serialization"]
+uuid = "1a1011a3-84de-559e-8e89-a11a2f7dc383"
+version = "1.11.0"
 
 [[deps.Showoff]]
 deps = ["Dates", "Grisu"]
@@ -1832,18 +2380,27 @@ deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_j
 git-tree-sha1 = "5acc6a41b3082920f79ca3c759acbcecf18a8d78"
 uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
 version = "2.7.1"
+weakdeps = ["ChainRulesCore"]
 
     [deps.SpecialFunctions.extensions]
     SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
-
-    [deps.SpecialFunctions.weakdeps]
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 
 [[deps.StableRNGs]]
 deps = ["Random"]
 git-tree-sha1 = "4f96c596b8c8258cc7d3b19797854d368f243ddc"
 uuid = "860ef19b-820b-49d6-a774-d7a799459cd3"
 version = "1.0.4"
+
+[[deps.StaticArrays]]
+deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
+git-tree-sha1 = "246a8bb2e6667f832eea063c3a56aef96429a3db"
+uuid = "90137ffa-7385-5640-81b9-e52037218182"
+version = "1.9.18"
+weakdeps = ["ChainRulesCore", "Statistics"]
+
+    [deps.StaticArrays.extensions]
+    StaticArraysChainRulesCoreExt = "ChainRulesCore"
+    StaticArraysStatisticsExt = "Statistics"
 
 [[deps.StaticArraysCore]]
 git-tree-sha1 = "6ab403037779dae8c514bad259f32a447262455a"
@@ -1872,6 +2429,26 @@ git-tree-sha1 = "aceda6f4e598d331548e04cc6b2124a6148138e3"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.34.10"
 
+[[deps.StatsFuns]]
+deps = ["HypergeometricFunctions", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
+git-tree-sha1 = "91f091a8716a6bb38417a6e6f274602a19aaa685"
+uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
+version = "1.5.2"
+
+    [deps.StatsFuns.extensions]
+    StatsFunsChainRulesCoreExt = "ChainRulesCore"
+    StatsFunsInverseFunctionsExt = "InverseFunctions"
+
+    [deps.StatsFuns.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
+
+[[deps.StatsPlots]]
+deps = ["AbstractFFTs", "Clustering", "DataStructures", "Distributions", "Interpolations", "KernelDensity", "LinearAlgebra", "MultivariateStats", "NaNMath", "Observables", "Plots", "RecipesBase", "RecipesPipeline", "Reexport", "StatsBase", "TableOperations", "Tables", "Widgets"]
+git-tree-sha1 = "88cf3587711d9ad0a55722d339a013c4c56c5bbc"
+uuid = "f3b207a7-027a-5e70-b257-86293d7955fd"
+version = "0.15.8"
+
 [[deps.StringManipulation]]
 deps = ["PrecompileTools"]
 git-tree-sha1 = "d05693d339e37d6ab134c5ab53c29fce5ee5d7d5"
@@ -1896,6 +2473,10 @@ version = "2.6.3"
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 version = "1.11.0"
 
+[[deps.SuiteSparse]]
+deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
+uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
+
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
@@ -1905,6 +2486,12 @@ version = "7.8.3+2"
 deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
+
+[[deps.TableOperations]]
+deps = ["SentinelArrays", "Tables", "Test"]
+git-tree-sha1 = "e383c87cf2a1dc41fa30c093b2a19877c83e1bc1"
+uuid = "ab02a1b2-a7df-11e8-156e-fb1833f50b87"
+version = "1.2.0"
 
 [[deps.TableTraits]]
 deps = ["IteratorInterfaceExtensions"]
@@ -1986,6 +2573,18 @@ deps = ["DataAPI", "InlineStrings", "Parsers"]
 git-tree-sha1 = "b1be2855ed9ed8eac54e5caff2afcdb442d52c23"
 uuid = "ea10d353-3f73-51f8-a26c-33c1cb351aa5"
 version = "1.4.2"
+
+[[deps.Widgets]]
+deps = ["Colors", "Dates", "Observables", "OrderedCollections"]
+git-tree-sha1 = "e9aeb174f95385de31e70bd15fa066a505ea82b9"
+uuid = "cc8bc4a8-27d6-5769-a93b-9d913e69aa62"
+version = "0.6.7"
+
+[[deps.WoodburyMatrices]]
+deps = ["LinearAlgebra", "SparseArrays"]
+git-tree-sha1 = "248a7031b3da79a127f14e5dc5f417e26f9f6db7"
+uuid = "efce3f68-66dc-5838-9240-27a6d6f5f9b6"
+version = "1.1.0"
 
 [[deps.WorkerUtilities]]
 git-tree-sha1 = "cd1659ba0d57b71a464a29e64dbc67cfe83d54e7"
@@ -2272,10 +2871,10 @@ version = "1.13.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╟─8d84f7cc-d13b-4b49-a2e0-cbf70d2d75a5
-# ╟─62346384-1eef-4e5a-b7a0-e1b8af341cbe
-# ╟─6a3f59f9-df9d-44a6-9a0e-bbc5a87d9057
-# ╟─0f14b248-b15f-4fa4-b2f0-ff5f6609d66a
+# ╠═8d84f7cc-d13b-4b49-a2e0-cbf70d2d75a5
+# ╠═62346384-1eef-4e5a-b7a0-e1b8af341cbe
+# ╠═6a3f59f9-df9d-44a6-9a0e-bbc5a87d9057
+# ╠═0f14b248-b15f-4fa4-b2f0-ff5f6609d66a
 # ╟─c5a6ef95-7fb6-4368-9d4d-6a44d95dd95e
 # ╟─97e1f81e-e8fc-4232-a7f4-0f145f2eae11
 # ╟─3c6fd072-198c-410a-a771-85bc8e8ac5a3
@@ -2285,35 +2884,43 @@ version = "1.13.0+0"
 # ╟─e13eb5ef-c053-4dca-9a96-8509068937df
 # ╟─8c6ad877-f4e2-422a-a86f-5ae47f76f2ba
 # ╟─0381f849-d27f-4208-a63f-08b7ed99e1db
-# ╟─5fddf73d-9b85-47f7-b8eb-c4788de33484
-# ╟─11f6f202-6ca0-4f51-a6d3-e59aeb4e8130
-# ╟─77df8d14-c178-44e8-982f-71b38ffaf77b
-# ╟─f9f9a9a3-a2c3-4a93-a3de-80de403f0d5f
-# ╟─a9f6c35a-7e7b-4383-80ff-1df3d49f2bf6
-# ╟─6dcf7d5d-fc68-4f21-8f40-406f173122f2
-# ╟─1ccb18f5-b6f8-431a-a670-a94efea7e988
-# ╟─8b676680-8e27-49f7-991f-c8dffef2f62d
-# ╟─70094435-8e89-4d22-a9de-fd8f0b2ac76d
-# ╟─66fa1086-568d-4eb8-a8ea-eb96f19dc6ef
-# ╟─fef42c56-e8e2-4ec2-9ad0-6bc9d1f37772
-# ╟─b4de8852-c51f-423f-be51-74f67f8404d2
-# ╟─f3cfdba1-8641-4c5e-b9e4-f3f1138859ea
-# ╟─5f50f57b-a52a-4305-b8c8-1ad1d6de8c77
-# ╟─ab98be9e-c06f-4a9f-929f-0ab2b8ce6edf
-# ╟─2e4c5804-bdc9-4f53-bbc4-b3df6f82c145
-# ╟─3083f7e8-b7f8-4f91-a35d-b6720fc03fdc
-# ╟─6a5025f6-c6a7-43cb-9cdd-b6ea8cd3935e
-# ╟─93f4c2a7-907e-4d80-a4fc-f0f8fb70e92a
-# ╟─a84f5e33-1c75-4a0c-95a6-5d17de525f59
-# ╟─98c1de45-f9cf-43ee-b903-5f6ca9897269
-# ╟─e2643d97-07f8-4fd4-b4ad-9e36b340f6e6
-# ╟─50bb2eb0-d367-4f48-a8db-c5d4db35e7f4
-# ╟─c4d34a8d-ad3d-44f6-934d-cf5c14670440
-# ╟─4d28c8d4-c1fc-4c7d-bcc8-09e8f568b0f6
-# ╟─2962c98d-6b35-42cf-9dfa-30ecebe4f38b
-# ╟─61ec2843-f706-41f3-9eb2-8bad3e1ea3ca
-# ╟─8ad9dcae-9ea1-4eb1-bf41-12db11170ad1
-# ╟─8bc13219-3baf-41d7-bf8d-3bc0e09be6bb
+# ╠═11f6f202-6ca0-4f51-a6d3-e59aeb4e8130
+# ╠═5fddf73d-9b85-47f7-b8eb-c4788de33484
+# ╠═77df8d14-c178-44e8-982f-71b38ffaf77b
+# ╠═f9f9a9a3-a2c3-4a93-a3de-80de403f0d5f
+# ╠═a9f6c35a-7e7b-4383-80ff-1df3d49f2bf6
+# ╠═6dcf7d5d-fc68-4f21-8f40-406f173122f2
+# ╠═1ccb18f5-b6f8-431a-a670-a94efea7e988
+# ╠═8b676680-8e27-49f7-991f-c8dffef2f62d
+# ╠═70094435-8e89-4d22-a9de-fd8f0b2ac76d
+# ╠═66fa1086-568d-4eb8-a8ea-eb96f19dc6ef
+# ╠═fef42c56-e8e2-4ec2-9ad0-6bc9d1f37772
+# ╠═b4de8852-c51f-423f-be51-74f67f8404d2
+# ╠═f3cfdba1-8641-4c5e-b9e4-f3f1138859ea
+# ╠═286ace1d-be59-4a0b-8b73-2ba751129850
+# ╟─2a92ae15-c2c4-4b2c-8523-7f63475d5057
+# ╠═ab98be9e-c06f-4a9f-929f-0ab2b8ce6edf
+# ╠═6668e05c-ec9f-44cb-a66f-ccb41b2f44dd
+# ╠═2e4c5804-bdc9-4f53-bbc4-b3df6f82c145
+# ╟─8b984de8-8ec4-46ac-adf0-0a2443774f24
+# ╠═3083f7e8-b7f8-4f91-a35d-b6720fc03fdc
+# ╠═530abe8f-3dc1-424f-a04c-b6a57e723d2f
+# ╠═6a5025f6-c6a7-43cb-9cdd-b6ea8cd3935e
+# ╠═ae0949bc-70b0-4cf2-9ab9-b5dc33e9b5ad
+# ╠═6ea65e96-4001-4795-b1f0-052db14cec52
+# ╟─13177dee-e72f-4997-a204-e110ef7ea60c
+# ╠═23b2f8f8-0133-46e9-a5d2-0c00aab6d2a4
+# ╠═98c1de45-f9cf-43ee-b903-5f6ca9897269
+# ╠═e2643d97-07f8-4fd4-b4ad-9e36b340f6e6
+# ╠═8f52ce15-6075-4c01-8361-4c18b4aae41a
+# ╠═50bb2eb0-d367-4f48-a8db-c5d4db35e7f4
+# ╟─ad3ebb32-88af-4f4d-8aac-e35f4ee76aee
+# ╠═c4d34a8d-ad3d-44f6-934d-cf5c14670440
+# ╠═4d28c8d4-c1fc-4c7d-bcc8-09e8f568b0f6
+# ╠═2962c98d-6b35-42cf-9dfa-30ecebe4f38b
+# ╠═61ec2843-f706-41f3-9eb2-8bad3e1ea3ca
+# ╠═8ad9dcae-9ea1-4eb1-bf41-12db11170ad1
+# ╠═8bc13219-3baf-41d7-bf8d-3bc0e09be6bb
 # ╟─f7193f9f-0d48-4e8e-bf11-0aaf67b9f04d
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
