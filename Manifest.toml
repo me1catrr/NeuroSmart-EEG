@@ -1,8 +1,8 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.12.5"
+julia_version = "1.12.3"
 manifest_format = "2.0"
-project_hash = "60140f864dd519edb62dc30f2575c72f70a5fa5f"
+project_hash = "eb45db77eda9280ef34cbe03d5c63afb9f3c040e"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -1107,7 +1107,7 @@ version = "0.3.4"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2025.11.4"
+version = "2025.5.20"
 
 [[deps.MsgPack]]
 deps = ["Serialization"]

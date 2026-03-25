@@ -26,6 +26,13 @@ using DSP
 using Plots
 # El backend GR se inicializa automáticamente al crear el primer plot
 using Serialization
+using InlineStrings
+
+# Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
+# cargamos utilidades de rutas para disponer de `stage_dir`.
+if !@isdefined(stage_dir)
+    include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+end
 
 # ------------------------------------------------------------------------------------
 # 1. CARGA DE DATOS Y CONFIGURACIÓN
@@ -35,6 +42,9 @@ using Serialization
 
 dir_io = stage_dir(:IO)
 path_dict = joinpath(dir_io, "dict_EEG.bin")
+if !isfile(path_dict)
+    error("No se encontró $(abspath(path_dict)). Ejecuta antes src/Preprocessing/IO.jl para generar dict_EEG.bin.")
+end
 dict_EEG = Serialization.deserialize(path_dict)
 
 # Directorio base para datos filtrados
@@ -64,10 +74,10 @@ println()
 # Filtrado de las señales
 println("📊 Pasos a seguir en el filtrado de las señales:")
 println("-" ^ 50)
-println("STEP Nº2. Filters nº1 (Notch Filter)")
-println("STEP Nº3. Bandreject filter")
-println("STEP Nº4. Highpass filter")
-println("STEP Nº5. Lowpass filter")
+println("STEP Nº1. Notch Filter")
+println("STEP Nº2. Bandreject filter")
+println("STEP Nº3. Highpass filter")
+println("STEP Nº4. Lowpass filter")
 println()
 
 # ------------------------------------------------------------------------------------
@@ -312,14 +322,15 @@ end
 
 println("📊 Filtro Notch (50 Hz)")
 println("-" ^ 40)
-println("Frecuencia de corte: $(Notch_cutoff) Hz")
-println("Orden del filtro: $(Notch_order)")
-println("Ancho de banda: $(Notch_width) Hz")
-println()
 
 Notch_cutoff = 50
 Notch_order = 4
 Notch_width = 1.0
+
+println("Frecuencia de corte: $(Notch_cutoff) Hz")
+println("Orden del filtro: $(Notch_order)")
+println("Ancho de banda: $(Notch_width) Hz")
+println()
 
 # Inicializamos el diccionario para las señales filtradas
 dict_EEG_Notch = Dict{String, Vector{Float64}}()
@@ -356,13 +367,17 @@ p_psd_comparison = compare_PSD_averages(
 
 println("📊 Filtro Bandreject (100 Hz)")
 println("-" ^ 40)
+
 Bandreject_freq = 100
 Bandreject_order = 4
 Bandreject_bandwidth = 1.0
+
 println("Frecuencia central: $(Bandreject_freq) Hz")
 println("Orden del filtro: $(Bandreject_order)")
 println("Ancho de banda: $(Bandreject_bandwidth) Hz")
 println()
+
+
 println("Justificación Técnica:")
 println()
 println("Este filtro se incluyó de forma conservadora para comprobar si existía")
@@ -417,6 +432,7 @@ println("Frecuencia de corte: $(Highpass_cutoff) Hz")
 println("Orden del diseño del filtro: $(Highpass_order_design)")
 println("Orden efectivo (con filtfilt): $(Highpass_order_effective)")
 println()
+
 println("Justificación Técnica:")
 println()
 println("Se eligió un HPF a 0.5 Hz como compromiso entre preservar señal fisiológica")
@@ -474,6 +490,7 @@ println("Frecuencia de corte: $(Lowpass_cutoff) Hz")
 println("Orden del diseño del filtro: $(Lowpass_order_design)")
 println("Orden efectivo (con filtfilt): $(Lowpass_order_effective)")
 println()
+
 println("Justificación Técnica:")
 println()
 println("Se mantuvo un límite superior amplio (150 Hz) para preservar información antes")
@@ -517,13 +534,3 @@ p_psd_comparison_lp = compare_PSD_averages(
     title = "Comparación PSD Promedio: Highpass vs Highpass+Lowpass"
 )
 
-# ------------------------------------------------------------------------------------
-# NOTAS / PRÓXIMOS PASOS (Gamma mapping)
-# ------------------------------------------------------------------------------------
-# TODO (mañana):
-# 1) Comprobar que la ruta de electrodes.tsv es correcta y que las columnas se llaman exactamente :name, :x, :y.
-# 2) Verificar que los nombres de canales en electrodes_df coinciden con las keys de dict_EEG_* (mismos labels que en BrainVision).
-# 3) Confirmar que calculate_PSD_average devuelve PSD[ch].freq y PSD[ch].power tal y como usa band_power_from_PSD.
-# 4) Probar primero con una sola banda (gamma 30–50 Hz) y un solo diccionario (p. ej. dict_EEG_Highpass) antes de hacer el Before–After.
-# 5) Revisar visualmente el topomap: que los electrodos caigan dentro del círculo y que no haya error de signos en x/y.
-# 6) Si todo funciona, generalizar gamma_min/gamma_max para otras bandas (alpha, beta, etc.) y guardar las figuras en disco.

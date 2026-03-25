@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.23
+# v0.20.21
 
 using Markdown
 using InteractiveUtils
@@ -7,15 +7,27 @@ using InteractiveUtils
 # ╔═╡ 4d8ca8b0-149f-4f6f-93f4-4e2d7f1a0b01
 begin
 	using PlutoUI
-	PlutoUI.TableOfContents(title = "Contenido - Preprocessing")
+	PlutoUI.TableOfContents(title = "Contenido")
 end
 
 # ╔═╡ d249d3f0-cf95-44e1-aec6-8ca4ad0fe102
 begin
 	include(joinpath(@__DIR__, "..", "_template_base.jl"))
 	using .PlutoTemplateBase
-	using CSV, DataFrames, Serialization, Statistics, StatsBase, DSP, Plots, Dates
+	using CSV, DataFrames, Serialization, Statistics, StatsBase, DSP, Plots, Dates, InlineStrings
 end
+
+# ╔═╡ a4097250-6b5a-4415-8469-e2a8dab637ec
+# Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
+# cargamos utilidades de rutas para disponer de `stage_dir`.
+if !@isdefined(stage_dir)
+    include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+end
+
+# ╔═╡ fc2c1f3e-448d-4bd0-8208-4d531d1e5800
+md"""
+**PAQUETES CARGADOS**
+"""
 
 # ╔═╡ e857112f-df27-4f7f-bcc7-34421e0c3103
 notebook_intro("PREPROCESSING")
@@ -31,11 +43,11 @@ El **preprocesamiento** de las señales **EEG crudas** tiene como objetivo elimi
 
 y limitar el ancho de banda antes del análisis de conectividad específico por banda.
 
-La implementación se proporciona en `src/filtering.jl`, que:
+La implementación se proporciona en `src/Preprocessing/filtering.jl`, que:
 
-1. carga los datos serializados desde `data/IO/dict_EEG.bin`,
+1. carga los datos serializados desde `data/Preprocessing/IO/dict_EEG.bin`,
 2. aplica una **cascada de filtros digitales**,
-3. guarda en cada paso el resultado en `data/filtering/`,
+3. guarda en cada paso el resultado en `data/Preprocessing/filtering/`,
 4. genera gráficos de la respuesta del filtro (magnitud y fase),
 5. compara la **PSD media** antes y después del filtrado.
 
@@ -56,37 +68,28 @@ La cascada de filtrado se aplica en el siguiente orden:
 
 # ╔═╡ 204da7a3-9f60-4918-97f4-06a2d621dc15
 md"
-# Carga de datos (dict_EEG.bin)
+## Carga de datos (dict_EEG.bin)
 
-Se carga el diccionario **EEG** desde el paso de IO (`dict_EEG.bin`) y se configuran las rutas de salida para los datos filtrados:
-
-- carga de datos (`raw` y `electrodes`),
-- construccion de `dict_EEG.bin` (IO),
-- y rutas de salida para `filtering`.
+Se carga el diccionario **EEG** desde el paso de IO (`dict_EEG.bin`) y se configuran las rutas de salida para los datos filtrados.
 "
 
-# ╔═╡ c5a95b03-b0c6-4bf8-a5ab-c5a31af34205
+# ╔═╡ b1a100f5-2f4f-4d30-b4c4-1dca20c50e04
 begin
-	raw_path = joinpath(raw_dir(), "sub-M05_ses-T2_task-eyesclosed_run-01_eeg_data.tsv")
-	data_raw = if isfile(raw_path)
-		CSV.read(raw_path, DataFrame; delim = '\t')
-	else
-		@warn "No se encontro raw TSV; usando DataFrame vacio (modo publico/export)." raw_path
-		DataFrame(Channel = String[])
-	end
-	data_raw
-end
+# -----------------------------------------------------------------------------------
+# 1. CARGA DE DATOS Y CONFIGURACIÓN
+# -----------------------------------------------------------------------------------
+# Se carga el diccionario EEG desde el paso de IO (dict_EEG.bin) y se configuran
+# las rutas de salida para los datos filtrados.
 
-# ╔═╡ 11b0a622-c1e1-4e05-98c3-cf3a2f72a306
-begin
-	electrodes_path = joinpath(electrodes_dir(), "sub-M05_ses-T2_electrodes.tsv")
-	electrodes = if isfile(electrodes_path)
-		CSV.read(electrodes_path, DataFrame; delim = '\t')
-	else
-		@warn "No se encontro electrodes.tsv; usando tabla vacia (modo publico/export)." electrodes_path
-		DataFrame(name = String[], x = Float64[], y = Float64[], z = Float64[], type = String[])
-	end
-	electrodes
+dir_io = stage_dir(:IO)
+path_dict = joinpath(dir_io, "dict_EEG.bin")
+if !isfile(path_dict)
+    error("No se encontró $(abspath(path_dict)). Ejecuta antes src/Preprocessing/IO.jl para generar dict_EEG.bin.")
+end
+dict_EEG = Serialization.deserialize(path_dict)
+
+# Directorio base para datos filtrados
+dir_filtering = stage_dir(:filtering)
 end
 
 # ╔═╡ aa74685e-d70c-4b92-99c6-9c8f051d387e
@@ -111,20 +114,38 @@ println("  Duración total: $(round(duracion_total, digits=2)) segundos ($(round
 println()
 end
 
-# ╔═╡ 21ec0155-70ba-4535-943c-7f2fc48dbd1f
+# ╔═╡ 557acfe8-89d9-4060-b851-b0fef0412631
+begin
+# Mostramos los datos de los canales
+println("📊 Datos de los canales")
+println("-" ^ 80)
+display(dict_EEG)
+println()
+end
+
+# ╔═╡ 583ea341-04cf-4c52-ba27-5a1e9617d397
+begin
+	# Filtrado de las señales
+	println("=" ^ 50)
+	println("📊 Pasos a seguir en el filtrado de las señales:")
+	println("=" ^ 50)
+	println("STEP Nº1. Notch Filter")
+	println("STEP Nº2. Bandreject filter")
+	println("STEP Nº3. Highpass filter")
+	println("STEP Nº4. Lowpass filter")
+	println()
+end
+
+# ╔═╡ d620dfe1-1628-4da7-8e1b-b456d659dbe8
 md"
-### Filtro Notch 
+## Definición de funciones
 
-Filtro **band-stop** ($50\,\mathrm{Hz}$) para eliminar la interferencia de la red eléctrica (Europa).
-
-**Diseño:**
-
-- orden: $4$
-- ancho de banda: $1\,\mathrm{Hz}$ alrededor de $50\,\mathrm{Hz}$
----
+- Funciones para filtros Butterworth (notch, bandreject, highpass, lowpass)
+- Visualización de respuesta en frecuencia, PSD y guardado de señales filtradas
 "
 
-# ╔═╡ a160bce0-dd02-4601-b2ef-bc4bd59bfbaa
+# ╔═╡ 39690c4c-c5c8-4235-b832-4e78d8f72b3e
+begin
 """Aplica un filtro Butterworth notch_filter a un vector x"""
 function notch_filter(x::Vector{<:Real}, freq::Real, fs::Real, order::Int = 5, width::Real = 1.0)  
     # Calculamos las frecuencias inferior y superior del notch
@@ -138,6 +159,81 @@ function notch_filter(x::Vector{<:Real}, freq::Real, fs::Real, order::Int = 5, w
     flt = digitalfilter(responsetype, designmethod)
     y = filt(flt, x)                # señal filtrada
     return y, flt                   # devolvemos también el filtro para analizarlo
+end
+end
+
+# ╔═╡ 722a26b7-1f85-489a-a9bb-66d8104f93ca
+begin
+"""Aplica un filtro Butterworth bandreject (bandstop) a un vector x"""
+function bandreject_filter(x::Vector{<:Real}, freq::Real, fs::Real, order::Int = 4, bandwidth::Real = 1.0)  
+    # Calculamos las frecuencias inferior y superior del bandreject
+    freq_low = freq - bandwidth/2
+    freq_high = freq + bandwidth/2
+    # Normalizamos las frecuencias (0–1)
+    wn_low = freq_low / (fs/2)
+    wn_high = freq_high / (fs/2)
+    responsetype = Bandstop(wn_low, wn_high)
+    designmethod = Butterworth(order)
+    flt = digitalfilter(responsetype, designmethod)
+    y = filt(flt, x)                # señal filtrada
+    return y, flt                   # devolvemos también el filtro para analizarlo
+end
+end
+
+# ╔═╡ 3249aa95-e924-4e96-bf72-30c9a02c8607
+begin
+"""Aplica un filtro Butterworth pasa-bajos a un vector x con zero phase shift (filtfilt)
+   
+   Nota: filtfilt aplica el filtro dos veces (adelante y atrás), duplicando el orden efectivo.
+   Para obtener orden N efectivo, se debe diseñar un filtro de orden N/2.
+   
+   Parámetros:
+   - x: señal de entrada
+   - cutoff: frecuencia de corte en Hz
+   - fs: frecuencia de muestreo en Hz
+   - order: orden del diseño del filtro (el orden efectivo será order × 2 con filtfilt)
+   - zero_phase: si es true (por defecto), usa filtfilt para zero phase shift
+"""
+function lowpass_filter(x::Vector{<:Real}, cutoff::Real, fs::Real, order::Int = 5; zero_phase::Bool = true)
+    wn = cutoff / (fs/2)            # Frecuencia de corte normalizada (0–1)
+    responsetype = Lowpass(wn)
+    designmethod = Butterworth(order)
+    flt = digitalfilter(responsetype, designmethod)
+    if zero_phase
+        y = filtfilt(flt, x)        # señal filtrada con zero phase (orden efectivo = order × 2)
+    else
+        y = filt(flt, x)            # señal filtrada con desplazamiento de fase (orden efectivo = order)
+    end
+    return y, flt                   # devolvemos también el filtro para analizarlo
+end
+end
+
+# ╔═╡ d359220a-c31c-4ce4-91e6-b58a7a9e7d08
+begin
+"""Aplica un filtro Butterworth pasa-altos a un vector x con zero phase shift (filtfilt)
+   
+   Nota: filtfilt aplica el filtro dos veces (adelante y atrás), duplicando el orden efectivo.
+   Para obtener orden N efectivo, se debe diseñar un filtro de orden N/2.
+   
+   Parámetros:
+   - x: señal de entrada
+   - cutoff: frecuencia de corte en Hz
+   - fs: frecuencia de muestreo en Hz
+   - order: orden del diseño del filtro (el orden efectivo será order × 2 con filtfilt)
+   - zero_phase: si es true (por defecto), usa filtfilt para zero phase shift
+"""
+function highpass_filter(x::Vector{<:Real}, cutoff::Real, fs::Real, order::Int = 5; zero_phase::Bool = true)
+    wn = cutoff / (fs/2)            # Frecuencia de corte normalizada (0–1)
+    responsetype = Highpass(wn)
+    designmethod = Butterworth(order)
+    flt = digitalfilter(responsetype, designmethod)
+    if zero_phase
+        y = filtfilt(flt, x)        # señal filtrada con zero phase (orden efectivo = order × 2)
+    else
+        y = filt(flt, x)            # señal filtrada con desplazamiento de fase (orden efectivo = order)
+    end
+    return y, flt                   # devolvemos también el filtro para analizarlo
+end 
 end
 
 # ╔═╡ 8ade48ae-34e1-462b-9c0e-206547e7432b
@@ -185,25 +281,6 @@ function plot_filter_response(flt, fs::Real; title::String = "Respuesta del Filt
 end
 end
 
-# ╔═╡ 19a25445-09f4-4f9e-8281-dd16357f965b
-begin
-"""Guarda un diccionario de señales filtradas en un archivo binario"""
-function save_filtered_signals(dict_EEG_filtered::Dict{String, Vector{Float64}}, filename::String, base_dir::String = dir_filtering)
-    # Crear el directorio si no existe
-    if !isdir(base_dir)
-        mkpath(base_dir)
-        println("📁 Directorio creado: $(abspath(base_dir))")
-    end
-    # Construir el path completo
-    save_path = joinpath(base_dir, filename)
-    
-    # Guardar el archivo
-    Serialization.serialize(save_path, dict_EEG_filtered)
-    println("✓ Diccionario EEG filtrado guardado en: $(abspath(save_path))")
-    println()
-end
-end
-
 # ╔═╡ dca7f5db-a29d-4028-aaef-8d51f4ebfb9c
 begin
 """Calcula la PSD promedio de un diccionario de señales EEG (sin plotear)"""
@@ -222,6 +299,43 @@ function calculate_PSD_average(dict_EEG_data::Dict, fs::Real)
     avg_power = mapreduce(ch -> PSD[ch].power, +, channels) ./ length(channels)
     
     return freqs_avg, avg_power, PSD
+end
+end
+
+# ╔═╡ 81c91017-c887-4aa0-b5f0-12436d83b0b3
+begin
+"""Calcula y visualiza la PSD (Power Spectral Density) para un diccionario de señales EEG"""
+function calculate_and_plot_PSD(dict_EEG_data::Dict, fs::Real; title_prefix::String = "PSD")
+    println("📈 CÁLCULO DE PSD POR CANAL")
+    println("-" ^ 80)
+    println()
+    
+    # Calcular PSD promedio
+    freqs_avg, avg_power, PSD = calculate_PSD_average(dict_EEG_data, fs)
+    
+    println("  → PSD promedio de todos los canales")
+    
+    power_min, power_max = extrema(avg_power)
+    y_min_log = floor(log10(power_min))
+    y_max_log = ceil(log10(power_max))
+    ylim_log = (10.0^y_min_log, 10.0^y_max_log)
+    
+    p_psd_avg = plot(
+        xlabel = "Frecuencia (Hz)",
+        ylabel = "Potencia (µV²/Hz)",
+        title = "$(title_prefix) - Promedio de todos los canales",
+        legend = false,
+        xlim = (0, fs / 2),
+        yscale = :log10,
+        ylim = ylim_log,
+    )
+    
+    plot!(p_psd_avg, freqs_avg, avg_power; label = "Promedio", lw = 2, color = :black)
+    
+    display(p_psd_avg)
+    println()
+    
+    return PSD, p_psd_avg
 end
 end
 
@@ -267,6 +381,38 @@ function compare_PSD_averages(dict_EEG_1::Dict, dict_EEG_2::Dict, fs::Real;
 end
 end
 
+# ╔═╡ 19a25445-09f4-4f9e-8281-dd16357f965b
+begin
+"""Guarda un diccionario de señales filtradas en un archivo binario"""
+function save_filtered_signals(dict_EEG_filtered::Dict{String, Vector{Float64}}, filename::String, base_dir::String = dir_filtering)
+    # Crear el directorio si no existe
+    if !isdir(base_dir)
+        mkpath(base_dir)
+        println("📁 Directorio creado: $(abspath(base_dir))")
+    end
+    # Construir el path completo
+    save_path = joinpath(base_dir, filename)
+    
+    # Guardar el archivo
+    Serialization.serialize(save_path, dict_EEG_filtered)
+    println("✓ Diccionario EEG filtrado guardado en: $(abspath(save_path))")
+    println()
+end
+end
+
+# ╔═╡ 21ec0155-70ba-4535-943c-7f2fc48dbd1f
+md"
+## Filtro Notch 
+
+Filtro **band-stop** ($50\,\mathrm{Hz}$) para eliminar la interferencia de la red eléctrica (Europa).
+
+**Diseño:**
+
+- orden: $4$
+- ancho de banda: $1\,\mathrm{Hz}$ alrededor de $50\,\mathrm{Hz}$
+---
+"
+
 # ╔═╡ 2eb37338-f2ee-430e-8872-611374277c1b
 begin
 println("=" ^ 30)
@@ -303,6 +449,9 @@ p_notch, _, _ = plot_filter_response(flt_notch, fs; title = "Filtro Notch (50 Hz
 p_notch
 end
 
+# ╔═╡ ca639a99-34d1-4fec-b800-8c7a03c45f7c
+save_filtered_signals(dict_EEG_Notch, "dict_EEG_Notch.bin")
+
 # ╔═╡ e3d66280-fcca-4299-a59b-5187c4b05c57
 begin
 # Comparar PSD promedio del original vs Notch filtrado (superpuestos)
@@ -316,39 +465,18 @@ p_psd_comparison = compare_PSD_averages(
 )
 end
 
-# ╔═╡ 9e3e3f75-9d1b-4631-876b-e3321b92749d
-save_filtered_signals(dict_EEG_Notch, "dict_EEG_Notch.bin")
-
 # ╔═╡ 3cfdf522-7ab0-4ca4-be68-a5cfe7a421a9
 md"
 
-### Rechazo de banda
+## Rechazo de banda
 
-Filtro **band-stop estrecho** ($100\,\mathrm{Hz}$) para eliminar posibles interferencias relacionadas con el hardware alrededor de $100\,\mathrm{Hz}$ (y múltiplos de $50\,\mathrm{Hz}$) sin atenuar ampliamente las frecuencias altas.
+Filtro **band-stop estrecho** ($100\,\mathrm{Hz}$) para eliminar posibles interferencias relacionadas con el hardware alrededor de $100\,\mathrm{Hz}$ (y múltiplos de $50\,\mathrm{Hz}$). Su ancho es muy estrecho (1 Hz) para evitar una eliminación generalizada de componentes de alta frecuencia.
 
 **Diseño:**
 
 - orden: $4$
 - ancho de banda: $1\,\mathrm{Hz}$
 "
-
-# ╔═╡ a27d6977-9554-4483-b2c5-befa438abba9
-begin
-"""Aplica un filtro Butterworth bandreject (bandstop) a un vector x"""
-function bandreject_filter(x::Vector{<:Real}, freq::Real, fs::Real, order::Int = 4, bandwidth::Real = 1.0)  
-    # Calculamos las frecuencias inferior y superior del bandreject
-    freq_low = freq - bandwidth/2
-    freq_high = freq + bandwidth/2
-    # Normalizamos las frecuencias (0–1)
-    wn_low = freq_low / (fs/2)
-    wn_high = freq_high / (fs/2)
-    responsetype = Bandstop(wn_low, wn_high)
-    designmethod = Butterworth(order)
-    flt = digitalfilter(responsetype, designmethod)
-    y = filt(flt, x)                # señal filtrada
-    return y, flt                   # devolvemos también el filtro para analizarlo
-end
-end
 
 # ╔═╡ a78f7513-f36d-4854-80d9-c0f6d3afd3e4
 begin
@@ -365,11 +493,14 @@ println("Ancho de banda: $(Bandreject_bandwidth) Hz")
 println()
 end
 
-# ╔═╡ 1f79a883-9fc4-49d6-8119-d6f1344a0836
+# ╔═╡ 8ffaf690-abeb-4228-84b8-f31aa8b0fade
 begin
 # Inicializamos el diccionario para las señales filtradas
 dict_EEG_Bandreject = Dict{String, Vector{Float64}}()
+end
 
+# ╔═╡ 1f79a883-9fc4-49d6-8119-d6f1344a0836
+begin
 # Obtenemos el filtro una vez (es el mismo para todos los canales)
 _, flt_bandreject = bandreject_filter(dict_EEG_Notch[first(keys(dict_EEG_Notch))], Bandreject_freq, fs, Bandreject_order, Bandreject_bandwidth)
 
@@ -409,43 +540,168 @@ save_filtered_signals(dict_EEG_Bandreject, "dict_EEG_Bandreject.bin")
 
 # ╔═╡ 8de2f84f-2f33-44b7-b9cb-4a88fd6f8f09
 md"""
-## Siguiente etapa
+## Filtro Pasa-Alto
 
-Los resultados de filtrado deben guardarse en:
-`$(stage_dir(:filtering))`
+Elimina la deriva lenta preservando actividad de baja frecuencia ($0.5\,\mathrm{Hz}$)
+
+**Diseño:**
+
+- orden: $4$
+- orden efectivo: $8$ con `filtfilt`
+
+El punto de corte en $0.5\,\mathrm{Hz}$ se seleccionó como un compromiso entre reducir la deriva del baseline y conservar la señal fisiológica lenta. Esta elección permite mantener actividad **infra-lenta** potencialmente relevante en **EM (Esclerosis Múltiple)**, asociada a procesos como inflamación o reorganización cortical.
+
+Aunque se ha reportado que ICA puede beneficiarse de filtros pasa-alto ≥1 Hz, se priorizó un umbral más bajo para evitar la pérdida de información clínicamente significativa en bajas frecuencias.
 """
 
-# ╔═╡ 3249aa95-e924-4e96-bf72-30c9a02c8607
+# ╔═╡ 8eb74e92-e770-4bb6-80ab-38a12c59e0c2
 begin
-	dict_EEG = if nrow(data_raw) > 0 && (:Channel in names(data_raw)) && (size(data_raw, 2) > 1)
-		mat = Matrix(data_raw[:, Not(:Channel)])
-		Dict(data_raw.Channel[i] => vec(mat[i, :]) for i in 1:size(data_raw, 1))
-	else
-		Dict{String, Vector{Float64}}()
-	end
-	dict_EEG
+println("=" ^ 40)
+println("📊 Filtro Highpass (0.5 Hz)")
+println("=" ^ 40)
+	
+Highpass_cutoff = 0.5
+Highpass_order_design = 4          				# Orden del diseño del filtro
+Highpass_order_effective = 8       				# Orden efectivo (4 × 2 con filtfilt)
+	
+println("Frecuencia de corte: $(Highpass_cutoff) Hz")
+println("Orden del diseño del filtro: $(Highpass_order_design)")
+println("Orden efectivo (con filtfilt): $(Highpass_order_effective)")
+println()
 end
 
-# ╔═╡ d359220a-c31c-4ce4-91e6-b58a7a9e7d08
+# ╔═╡ e4dba693-d8bf-4501-94e0-2e258026f006
 begin
-	isdir(dir_io) || mkpath(dir_io)
-	path_dict = joinpath(dir_io, "dict_EEG.bin")
-	Serialization.serialize(path_dict, dict_EEG)
-	"dict_EEG guardado en: $(abspath(path_dict))"
+# Inicializamos el diccionario para las señales filtradas
+dict_EEG_Highpass = Dict{String, Vector{Float64}}()
 end
 
-# ╔═╡ b1a100f5-2f4f-4d30-b4c4-1dca20c50e04
+# ╔═╡ d9b01b57-e43f-4f08-865f-0a68f99c5c69
+begin
+# Obtenemos el filtro una vez (es el mismo para todos los canales)
+_, flt_highpass = highpass_filter(dict_EEG_Bandreject[first(keys(dict_EEG_Bandreject))], Highpass_cutoff, fs, Highpass_order_design)
+
+# Aplicamos el filtro Highpass a todos los canales (usando dict_EEG_Bandreject como entrada)
+println("Aplicando filtro Highpass a todos los canales...")
+for (channel, signal) in dict_EEG_Bandreject
+    # zero_phase = true por defecto, así que no necesitamos especificarlo explícitamente
+    y_highpass, _ = highpass_filter(signal, Highpass_cutoff, fs, Highpass_order_design)
+    dict_EEG_Highpass[channel] = y_highpass
+    println("  ✓ Canal $(channel) filtrado")
+end
+println("✓ Filtro Highpass aplicado a $(length(dict_EEG_Highpass)) canales")
+println()
+end
+
+# ╔═╡ 071e25e0-d109-4eea-b8f7-6fd1b50e05b4
+begin
+# Ploteamos la respuesta del filtro Highpass
+p_highpass, _, _ = plot_filter_response(flt_highpass, fs; title = "Filtro Highpass (0.5 Hz)")
+p_highpass
+end
+
+# ╔═╡ 6ebbe85d-c23a-4c92-8dbf-e127644df2b0
+begin
+# Comparar PSD promedio del Bandreject vs Highpass filtrado (superpuestos)
+p_psd_comparison_hp = compare_PSD_averages(
+    dict_EEG_Bandreject, 
+    dict_EEG_Highpass, 
+    fs;
+    label_1 = "Notch + Bandreject",
+    label_2 = "Notch + Bandreject + Highpass (0.5 Hz)",
+    title = "Comparación PSD Promedio: Bandreject vs Bandreject+Highpass"
+)
+end
+
+# ╔═╡ 86d3608c-d508-4751-b95f-b1a9dda4b863
+begin
+save_filtered_signals(dict_EEG_Highpass, "dict_EEG_Highpass.bin")
+end
+
+# ╔═╡ 445104ec-c077-4e84-86cc-d4b21813bf07
+md"
+## Filtro Paso-Bajo 
+
+Limita el ancho de banda superior ($150\,\mathrm{Hz}$).
+
+**Diseño:**
+
+- orden: $4$
+- orden efectivo: $8$ con `filtfilt`
+
+Se eligió un corte en $150\,\mathrm{Hz}$ para conservar un rango amplio de información, incluyendo la banda **gamma**, y permitir una inspección inicial sin restricciones excesivas.
+
+Este enfoque evita perder posibles componentes de gamma alta, que en algunos estudios sobre **EM (Esclerosis Múltiple)** se han relacionado con procesos de plasticidad cortical. Además, situar el corte lejos de las bandas de interés reduce el riesgo de artefactos de *ringing*.
+
+Si el análisis posterior lo requiere, la señal puede restringirse sin inconvenientes a frecuencias más bajas (por ejemplo, $<50\,\mathrm{Hz}$).
+"
+
+# ╔═╡ cb505061-f6c3-48da-a970-100d98c38c79
 begin
 # -----------------------------------------------------------------------------------
-# 1. CARGA DE DATOS Y CONFIGURACIÓN
+# 7. FILTRO LOWPASS (150 Hz)
 # -----------------------------------------------------------------------------------
-# Se carga el diccionario EEG desde el paso de IO (dict_EEG.bin) y se configuran
-# las rutas de salida para los datos filtrados.
-dir_io = stage_dir(:IO)
-path_dict = joinpath(dir_io, "dict_EEG.bin")
-dict_EEG = Serialization.deserialize(path_dict)
-# Directorio base para datos filtrados
-dir_filtering = stage_dir(:filtering)
+# Limita el ancho de banda superior; preserva gamma para análisis posteriores.
+println("=" ^ 40)
+println("📊 Filtro Lowpass (150 Hz)")
+println("=" ^ 40)
+	
+Lowpass_cutoff = 150
+Lowpass_order_design = 4          				# Orden del diseño del filtro
+Lowpass_order_effective = 8       				# Orden efectivo (4 × 2 con filtfilt)
+	
+println("Frecuencia de corte: $(Lowpass_cutoff) Hz")
+println("Orden del diseño del filtro: $(Lowpass_order_design)")
+println("Orden efectivo (con filtfilt): $(Lowpass_order_effective)")
+println()
+end
+
+# ╔═╡ b7125ab8-d7cd-4ae9-b096-5a8f82c965cd
+begin
+# Inicializamos el diccionario para las señales filtradas
+dict_EEG_Lowpass = Dict{String, Vector{Float64}}()
+end
+
+# ╔═╡ 7b84b771-3ef5-4213-ae36-43408b1c4f0c
+begin
+# Obtenemos el filtro una vez (es el mismo para todos los canales)
+_, flt_lowpass = lowpass_filter(dict_EEG_Highpass[first(keys(dict_EEG_Highpass))], Lowpass_cutoff, fs, Lowpass_order_design)
+
+# Aplicamos el filtro Lowpass a todos los canales (usando dict_EEG_Highpass como entrada)
+println("Aplicando filtro Lowpass a todos los canales...")
+for (channel, signal) in dict_EEG_Highpass
+    # zero_phase = true por defecto, así que no necesitamos especificarlo explícitamente
+    y_lowpass, _ = lowpass_filter(signal, Lowpass_cutoff, fs, Lowpass_order_design)
+    dict_EEG_Lowpass[channel] = y_lowpass
+    println("  ✓ Canal $(channel) filtrado")
+end
+println("✓ Filtro Lowpass aplicado a $(length(dict_EEG_Lowpass)) canales")
+println()
+end
+
+# ╔═╡ 0b6f3dbf-57fc-4e62-b931-1f6ca745f4fb
+begin
+# Ploteamos la respuesta del filtro Lowpass
+p_lowpass, _, _ = plot_filter_response(flt_lowpass, fs; title = "Filtro Lowpass (150 Hz)")
+p_lowpass
+end
+
+# ╔═╡ a09a6827-9d97-4304-92dc-676322cf1028
+begin
+# Comparar PSD promedio del Highpass vs Lowpass filtrado (superpuestos)
+p_psd_comparison_lp = compare_PSD_averages(
+    dict_EEG_Highpass, 
+    dict_EEG_Lowpass, 
+    fs;
+    label_1 = "Notch + Bandreject + Highpass",
+    label_2 = "Notch + Bandreject + Highpass + Lowpass (150 Hz)",
+    title = "Comparación PSD Promedio: Highpass vs Highpass+Lowpass"
+)
+end
+
+# ╔═╡ b6f85f7f-400e-4f4a-b079-6228fc279483
+begin
+save_filtered_signals(dict_EEG_Lowpass, "dict_EEG_Lowpass.bin")
 end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -455,6 +711,7 @@ CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DSP = "717857b8-e6f2-59f4-9121-6e50c889abd2"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+InlineStrings = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
@@ -465,6 +722,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 CSV = "~0.10.16"
 DSP = "~0.8.4"
 DataFrames = "~1.8.1"
+InlineStrings = "~1.4.5"
 Plots = "~1.41.6"
 PlutoUI = "~0.7.79"
 StatsBase = "~0.34.10"
@@ -476,7 +734,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.3"
 manifest_format = "2.0"
-project_hash = "2198751aa0a12e3de59d3128f321227881a32ce2"
+project_hash = "ffe39d6236f9a44feaecf63064aafa557da8e1b2"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -1892,35 +2150,53 @@ version = "1.13.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╟─4d8ca8b0-149f-4f6f-93f4-4e2d7f1a0b01
+# ╟─fc2c1f3e-448d-4bd0-8208-4d531d1e5800
+# ╠═4d8ca8b0-149f-4f6f-93f4-4e2d7f1a0b01
 # ╠═d249d3f0-cf95-44e1-aec6-8ca4ad0fe102
 # ╠═e857112f-df27-4f7f-bcc7-34421e0c3103
 # ╠═e456bde5-04a7-4db8-a5d4-cf2068dfe29b
 # ╠═204da7a3-9f60-4918-97f4-06a2d621dc15
+# ╠═a4097250-6b5a-4415-8469-e2a8dab637ec
 # ╠═b1a100f5-2f4f-4d30-b4c4-1dca20c50e04
 # ╠═aa74685e-d70c-4b92-99c6-9c8f051d387e
 # ╠═2a1d5d68-6618-467d-9701-1167dd2d54cc
-# ╠═c5a95b03-b0c6-4bf8-a5ab-c5a31af34205
-# ╠═11b0a622-c1e1-4e05-98c3-cf3a2f72a306
+# ╠═557acfe8-89d9-4060-b851-b0fef0412631
+# ╠═583ea341-04cf-4c52-ba27-5a1e9617d397
+# ╠═d620dfe1-1628-4da7-8e1b-b456d659dbe8
+# ╠═39690c4c-c5c8-4235-b832-4e78d8f72b3e
+# ╠═722a26b7-1f85-489a-a9bb-66d8104f93ca
 # ╠═3249aa95-e924-4e96-bf72-30c9a02c8607
 # ╠═d359220a-c31c-4ce4-91e6-b58a7a9e7d08
-# ╠═21ec0155-70ba-4535-943c-7f2fc48dbd1f
-# ╠═a160bce0-dd02-4601-b2ef-bc4bd59bfbaa
 # ╠═8ade48ae-34e1-462b-9c0e-206547e7432b
-# ╠═19a25445-09f4-4f9e-8281-dd16357f965b
 # ╠═dca7f5db-a29d-4028-aaef-8d51f4ebfb9c
+# ╠═81c91017-c887-4aa0-b5f0-12436d83b0b3
 # ╠═6e0cdb1b-d1cb-48ac-9167-c4d0c94ef398
+# ╠═19a25445-09f4-4f9e-8281-dd16357f965b
+# ╠═21ec0155-70ba-4535-943c-7f2fc48dbd1f
 # ╠═2eb37338-f2ee-430e-8872-611374277c1b
 # ╠═fa145f7e-4175-4aa9-ac93-8c1793b72b1b
+# ╠═ca639a99-34d1-4fec-b800-8c7a03c45f7c
 # ╠═e3d66280-fcca-4299-a59b-5187c4b05c57
-# ╠═9e3e3f75-9d1b-4631-876b-e3321b92749d
 # ╠═3cfdf522-7ab0-4ca4-be68-a5cfe7a421a9
-# ╠═a27d6977-9554-4483-b2c5-befa438abba9
 # ╠═a78f7513-f36d-4854-80d9-c0f6d3afd3e4
+# ╠═8ffaf690-abeb-4228-84b8-f31aa8b0fade
 # ╠═1f79a883-9fc4-49d6-8119-d6f1344a0836
 # ╠═ded8a18d-8a0f-4cbe-8eac-4e0eae3f1b31
 # ╠═78673555-9272-4ac4-9236-9724e0386ad8
 # ╠═59c6cbf2-9a13-45c5-9d65-c60ba88a8707
 # ╠═8de2f84f-2f33-44b7-b9cb-4a88fd6f8f09
+# ╠═8eb74e92-e770-4bb6-80ab-38a12c59e0c2
+# ╠═e4dba693-d8bf-4501-94e0-2e258026f006
+# ╠═d9b01b57-e43f-4f08-865f-0a68f99c5c69
+# ╠═071e25e0-d109-4eea-b8f7-6fd1b50e05b4
+# ╠═6ebbe85d-c23a-4c92-8dbf-e127644df2b0
+# ╠═86d3608c-d508-4751-b95f-b1a9dda4b863
+# ╠═445104ec-c077-4e84-86cc-d4b21813bf07
+# ╠═cb505061-f6c3-48da-a970-100d98c38c79
+# ╠═b7125ab8-d7cd-4ae9-b096-5a8f82c965cd
+# ╠═7b84b771-3ef5-4213-ae36-43408b1c4f0c
+# ╠═0b6f3dbf-57fc-4e62-b931-1f6ca745f4fb
+# ╠═a09a6827-9d97-4304-92dc-676322cf1028
+# ╠═b6f85f7f-400e-4f4a-b079-6228fc279483
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

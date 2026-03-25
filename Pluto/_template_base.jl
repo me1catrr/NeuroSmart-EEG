@@ -13,7 +13,12 @@ using Plots
 include(joinpath(@__DIR__, "..", "src", "modules", "paths.jl"))
 
 const FS_DEFAULT = 500.0
-const NOTEBOOK_AUTHOR = "RAFAEL CASTRO TRIGUERO, ALEJANDRO GALVAO Y JAVIER ESPUNY"
+const NOTEBOOK_AUTHOR = "RAFAEL CASTRO TRIGUERO\nALEJANDRO GALVAO\nJAVIER ESPUNY"
+
+function escape_html(s::AbstractString)
+    # Escapa caracteres básicos para evitar que el HTML se rompa.
+    return replace(replace(replace(s, "&" => "&amp;"), "<" => "&lt;"), ">" => "&gt;")
+end
 
 function published_date_str(d::Date = today())
     month_names_es = [
@@ -24,13 +29,32 @@ function published_date_str(d::Date = today())
 end
 
 function notebook_intro(title::AbstractString; author::AbstractString = NOTEBOOK_AUTHOR, published::Date = today())
-    return Markdown.parse("""
-# $(title)
+    published_str = published_date_str(published)
+    author_lines = split(author, '\n')
+    author_html = join(escape_html.(author_lines), "<br/>")
 
-| AUTOR | PUBLICADO |
-|---|---|
-| $(author) | $(published_date_str(published)) |
-""")
+    html = """
+<h1>$(escape_html(title))</h1>
+<table style="border-collapse: collapse; margin: 0 auto; width: 100%; max-width: 760px;">
+  <thead>
+    <tr>
+      <th style="border-bottom: 2px solid #ddd; padding: 6px 12px; text-align: center;">AUTORES</th>
+      <th style="border-bottom: 2px solid #ddd; padding: 6px 12px; text-align: center;">PUBLICADO</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="padding: 6px 12px; text-align: center; font-weight: 600; line-height: 1.25;">
+        $author_html
+      </td>
+      <td style="padding: 6px 12px; text-align: center;">
+        $(escape_html(published_str))
+      </td>
+    </tr>
+  </tbody>
+</table>
+"""
+    return Markdown.HTML(html)
 end
 
 export FS_DEFAULT
