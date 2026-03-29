@@ -28,6 +28,12 @@ using LinearAlgebra
 using Statistics
 using Random
 
+# Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
+# cargamos utilidades de rutas para disponer de `stage_dir`.
+if !@isdefined(stage_dir)
+    include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+end
+
 # ------------------------------------------------------------------------------------
 # 1. Carga de datos filtrados (tras notch y bandreject, hp y lp filtrados)
 # ------------------------------------------------------------------------------------
@@ -50,6 +56,11 @@ path_dict_ica = joinpath(dir_ica, "dict_EEG_ICA.bin")
 # Directorio de datos filtrados (entrada para ICA)
 dir_filtering     = stage_dir(:filtering)
 path_dict_lowpass = joinpath(dir_filtering, "dict_EEG_Lowpass.bin")
+
+# Verificamos que el resultado del filtrado esté disponible
+if !isfile(path_dict_lowpass)
+    error("No se encontró $(abspath(path_dict_lowpass)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin.")
+end
 
 # Cargar diccionario con señales por canal
 dict_EEG = Serialization.deserialize(path_dict_lowpass)
@@ -416,6 +427,11 @@ max_iter  = 512        # máximo número de iteraciones permitidas
 tol       = 1e-7       # criterio de convergencia (cuando max_diff < tol, se detiene)
 a         = 1.0        # parámetro de tanh(a*u), valor típico en FastICA
 seed      = 1234       # semilla para reproducibilidad (inicialización aleatoria)
+println("n_comp: ", n_comp)
+println("max_iter: ", max_iter)
+println("tol: ", tol)
+println("a: ", a)
+println("seed: ", seed)
 
 # Ejecutar FastICA
 # Esta función realizará todo el proceso: centrado, blanqueo, optimización iterativa

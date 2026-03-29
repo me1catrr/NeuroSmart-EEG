@@ -98,6 +98,12 @@ using StatsBase  # para kurtosis
 using Plots   # para las gráficas
 # El backend GR se inicializa automáticamente al crear el primer plot
 
+# Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
+# cargamos utilidades de rutas para disponer de `stage_dir`.
+if !@isdefined(stage_dir)
+    include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+end
+
 # -----------------------------------------------------------------------------
 # 0. Métricas cuantitativas usando datos de dict_EEG_Lowpass.bin
 # -----------------------------------------------------------------------------
@@ -112,10 +118,19 @@ println("=======================================================================
 println("  Preliminares: Métricas cuantitativas (datos de dict_EEG_Lowpass.bin)")
 println("=========================================================================\n")
 
-# Cargar datos filtrados (antes del ICA)
-dir_filtering = stage_dir(:filtering)
-path_dict_lowpass = joinpath(dir_filtering, "dict_EEG_Lowpass.bin")
-dict_EEG_Lowpass = Serialization.deserialize(path_dict_lowpass)
+# Cargar datos filtrados (antes del ICA) con variables locales.
+# Esto evita conflictos de redefinición al copiar este bloque en Pluto.
+dict_EEG_Lowpass = let
+    dir_filtering_local = stage_dir(:filtering)
+    path_dict_lowpass_local = joinpath(dir_filtering_local, "dict_EEG_Lowpass.bin")
+
+    if !isfile(path_dict_lowpass_local)
+        error("No se encontró $(abspath(path_dict_lowpass_local)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin.")
+    end
+
+    println("✓ Archivo: $(basename(path_dict_lowpass_local))\n")
+    Serialization.deserialize(path_dict_lowpass_local)
+end
 
 # Obtener canales ordenados (orden alfabético para consistencia)
 channels_lowpass = sort(collect(keys(dict_EEG_Lowpass)))
@@ -240,9 +255,6 @@ if !isempty(missing_ch)
 else
     println("✅ Todos los canales tienen coordenadas.\n")
 end
-
-using LinearAlgebra
-# Plots ya inicializado arriba, no es necesario inicializar de nuevo
 
 """
     project_elec_xy(elec_pos::Dict{String,Tuple{Float64,Float64,Float64}}, channels)
@@ -491,10 +503,8 @@ function plot_ic_timecourse(ic::Int; fs::Union{Nothing,Float64} = nothing)
 
     return plt
 end
+
 # 5. PSD de un componente ICA
-
-using DSP   # asegúrate de tenerlo ya cargado
-
 """
     calculate_PSD_signal(signal::AbstractVector, fs::Real)
 
@@ -616,53 +626,6 @@ function plot_ic_summary(ic::Int; fs::Float64)
 end
 
 # Generar y guardar plot_ic_summary para todas las componentes ICA
-# -----------------------------------------------------------------------------
-# Esta sección genera automáticamente visualizaciones completas (tipo EEGLAB)
-# para todas las componentes ICA. Cada visualización incluye:
-#   - Mapa topográfico (distribución espacial)
-#   - Serie temporal (actividad temporal)
-#   - Espectro de potencia (distribución espectral)
-#
-# Estas visualizaciones se guardan como archivos PNG y permiten inspección
-# manual de todas las componentes para verificar la evaluación automática.
-# -----------------------------------------------------------------------------
-println("=" ^ 60)
-println("  Generando resúmenes visuales de componentes ICA")
-println("=" ^ 60 * "\n")
-
-# Crear directorio de salida si no existe
-# Las figuras se guardan en results/figures/ICA_cleaning/
-dir_output = stage_dir(:ICA_cleaning; kind = :figures)
-isdir(dir_output) || mkpath(dir_output)
-
-# Obtener número de componentes ICA
-n_comp = size(S, 1)
-fs = 500.0  # frecuencia de muestreo (Hz)
-
-println("Generando resúmenes para $n_comp componentes ICA...")
-println("  → Directorio de salida: $dir_output")
-println()
-
-# Generar visualización para cada componente
-for ic in 1:n_comp
-    println("  Generando resumen para componente $ic/$n_comp...")
-    
-    # Generar el resumen completo (topografía + time course + espectro)
-    fig = plot_ic_summary(ic; fs = fs)
-    
-    # Guardar la figura como PNG
-    # Formato de nombre: IC_001.png, IC_002.png, etc. (con padding de 3 dígitos)
-    filename = joinpath(dir_output, "IC_$(lpad(ic, 3, '0')).png")
-    savefig(fig, filename)
-    
-    println("    ✓ Guardado en: $filename")
-end
-
-println("\n✅ Todos los resúmenes de componentes ICA han sido generados y guardados.")
-println("   Directorio: $dir_output\n")
-
-# Scores para las componentes 
-# ----------------------------
 # Score_1. Ratio espacial-temporal
 # Score_2. Potencias de banda PSD
 # Score_3. Blink Ratio
@@ -1104,6 +1067,53 @@ function evaluate_ics(
         jump_score     = jump,
         artifact_score = artifact_global,
         neural_score   = neural_score,
+# -----------------------------------------------------------------------------
+# Esta sección genera automáticamente visualizaciones completas (tipo EEGLAB)
+# para todas las componentes ICA. Cada visualización incluye:
+#   - Mapa topográfico (distribución espacial)
+#   - Serie temporal (actividad temporal)
+#   - Espectro de potencia (distribución espectral)
+#
+# Estas visualizaciones se guardan como archivos PNG y permiten inspección
+# manual de todas las componentes para verificar la evaluación automática.
+# -----------------------------------------------------------------------------
+println("=" ^ 60)
+println("  Generando resúmenes visuales de componentes ICA")
+println("=" ^ 60 * "\n")
+
+# Crear directorio de salida si no existe
+# Las figuras se guardan en results/figures/ICA_cleaning/
+dir_output = stage_dir(:ICA_cleaning; kind = :figures)
+isdir(dir_output) || mkpath(dir_output)
+
+# Obtener número de componentes ICA
+n_comp = size(S, 1)
+fs = 500.0  # frecuencia de muestreo (Hz)
+
+println("Generando resúmenes para $n_comp componentes ICA...")
+println("  → Directorio de salida: $dir_output")
+println()
+
+# Generar visualización para cada componente
+for ic in 1:n_comp
+    println("  Generando resumen para componente $ic/$n_comp...")
+    
+    # Generar el resumen completo (topografía + time course + espectro)
+    fig = plot_ic_summary(ic; fs = fs)
+    
+    # Guardar la figura como PNG
+    # Formato de nombre: IC_001.png, IC_002.png, etc. (con padding de 3 dígitos)
+    filename = joinpath(dir_output, "IC_$(lpad(ic, 3, '0')).png")
+    savefig(fig, filename)
+    
+    println("    ✓ Guardado en: $filename")
+end
+
+println("\n✅ Todos los resúmenes de componentes ICA han sido generados y guardados.")
+println("   Directorio: $dir_output\n")
+
+# Scores para las componentes 
+# ----------------------------
         label          = label
     )
 
@@ -1316,8 +1326,13 @@ println("  Preparación de datos para visualización")
 println("=" ^ 60 * "\n")
 
 # Cargar datos antes del ICA (Lowpass)
-# Estos son los datos filtrados pero aún con artefactos
-dict_EEG_Lowpass = Serialization.deserialize(path_dict_lowpass)
+# Estos son los datos filtrados pero aún con artefactos.
+# Recalculamos la ruta localmente para no depender de variables globales previas.
+dict_EEG_Lowpass = let
+    dir_filtering_local = stage_dir(:filtering)
+    path_dict_lowpass_local = joinpath(dir_filtering_local, "dict_EEG_Lowpass.bin")
+    Serialization.deserialize(path_dict_lowpass_local)
+end
 
 # Cargar datos después del ICA (limpio)
 # Estos son los datos después de eliminar componentes artefactuales
