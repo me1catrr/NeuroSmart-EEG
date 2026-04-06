@@ -96,7 +96,9 @@ using LinearAlgebra
 using Statistics
 using StatsBase  # para kurtosis
 using Plots   # para las gráficas
+using DSP   # asegúrate de tenerlo ya cargado
 # El backend GR se inicializa automáticamente al crear el primer plot
+using FFTW
 
 # Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
 # cargamos utilidades de rutas para disponer de `stage_dir`.
@@ -626,6 +628,53 @@ function plot_ic_summary(ic::Int; fs::Float64)
 end
 
 # Generar y guardar plot_ic_summary para todas las componentes ICA
+# -----------------------------------------------------------------------------
+# Esta sección genera automáticamente visualizaciones completas (tipo EEGLAB)
+# para todas las componentes ICA. Cada visualización incluye:
+#   - Mapa topográfico (distribución espacial)
+#   - Serie temporal (actividad temporal)
+#   - Espectro de potencia (distribución espectral)
+#
+# Estas visualizaciones se guardan como archivos PNG y permiten inspección
+# manual de todas las componentes para verificar la evaluación automática.
+# -----------------------------------------------------------------------------
+println("=" ^ 60)
+println("  Generando resúmenes visuales de componentes ICA")
+println("=" ^ 60 * "\n")
+
+# Crear directorio de salida si no existe
+# Las figuras se guardan en results/figures/ICA_cleaning/
+dir_output = stage_dir(:ICA_cleaning; kind = :figures)
+isdir(dir_output) || mkpath(dir_output)
+
+# Obtener número de componentes ICA
+n_comp = size(S, 1)
+fs = 500.0  # frecuencia de muestreo (Hz)
+
+println("Generando resúmenes para $n_comp componentes ICA...")
+println("  → Directorio de salida: $dir_output")
+println()
+
+# Generar visualización para cada componente
+for ic in 1:n_comp
+    println("  Generando resumen para componente $ic/$n_comp...")
+    
+    # Generar el resumen completo (topografía + time course + espectro)
+    fig = plot_ic_summary(ic; fs = fs)
+    
+    # Guardar la figura como PNG
+    # Formato de nombre: IC_001.png, IC_002.png, etc. (con padding de 3 dígitos)
+    filename = joinpath(dir_output, "IC_$(lpad(ic, 3, '0')).png")
+    savefig(fig, filename)
+    
+    println("    ✓ Guardado en: $filename")
+end
+
+println("\n✅ Todos los resúmenes de componentes ICA han sido generados y guardados.")
+println("   Directorio: $dir_output\n")
+
+# Scores para las componentes 
+# ----------------------------
 # Score_1. Ratio espacial-temporal
 # Score_2. Potencias de banda PSD
 # Score_3. Blink Ratio
@@ -634,13 +683,6 @@ end
 # Score_6. Kurtosis
 # Score_7. Fracción por muestras
 # Score_8. Correlación con EOG
-
-#############################
-# Paquetes necesarios
-#############################
-using FFTW
-using Statistics
-using DataFrames
 
 #############################
 # Funciones auxiliares básicas
@@ -1067,53 +1109,6 @@ function evaluate_ics(
         jump_score     = jump,
         artifact_score = artifact_global,
         neural_score   = neural_score,
-# -----------------------------------------------------------------------------
-# Esta sección genera automáticamente visualizaciones completas (tipo EEGLAB)
-# para todas las componentes ICA. Cada visualización incluye:
-#   - Mapa topográfico (distribución espacial)
-#   - Serie temporal (actividad temporal)
-#   - Espectro de potencia (distribución espectral)
-#
-# Estas visualizaciones se guardan como archivos PNG y permiten inspección
-# manual de todas las componentes para verificar la evaluación automática.
-# -----------------------------------------------------------------------------
-println("=" ^ 60)
-println("  Generando resúmenes visuales de componentes ICA")
-println("=" ^ 60 * "\n")
-
-# Crear directorio de salida si no existe
-# Las figuras se guardan en results/figures/ICA_cleaning/
-dir_output = stage_dir(:ICA_cleaning; kind = :figures)
-isdir(dir_output) || mkpath(dir_output)
-
-# Obtener número de componentes ICA
-n_comp = size(S, 1)
-fs = 500.0  # frecuencia de muestreo (Hz)
-
-println("Generando resúmenes para $n_comp componentes ICA...")
-println("  → Directorio de salida: $dir_output")
-println()
-
-# Generar visualización para cada componente
-for ic in 1:n_comp
-    println("  Generando resumen para componente $ic/$n_comp...")
-    
-    # Generar el resumen completo (topografía + time course + espectro)
-    fig = plot_ic_summary(ic; fs = fs)
-    
-    # Guardar la figura como PNG
-    # Formato de nombre: IC_001.png, IC_002.png, etc. (con padding de 3 dígitos)
-    filename = joinpath(dir_output, "IC_$(lpad(ic, 3, '0')).png")
-    savefig(fig, filename)
-    
-    println("    ✓ Guardado en: $filename")
-end
-
-println("\n✅ Todos los resúmenes de componentes ICA han sido generados y guardados.")
-println("   Directorio: $dir_output\n")
-
-# Scores para las componentes 
-# ----------------------------
         label          = label
     )
 

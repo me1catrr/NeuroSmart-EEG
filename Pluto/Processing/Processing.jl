@@ -1,23 +1,23 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v0.20.23
 
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 2ff7ee54-7bec-4e21-b804-e9fcc2f86a11
+# ╔═╡ a2fca222-2c13-11f1-bfbb-ffe9fd9d5381
 begin
-	using PlutoUI
-	PlutoUI.TableOfContents(title = "Contenido")
+using PlutoUI
+PlutoUI.TableOfContents(title = "Contenido")
 end
 
-# ╔═╡ 49ca7fca-11dc-4f81-b74f-b54e8b252e10
+# ╔═╡ 4a417ce1-7265-4a51-954f-1dacb925486d
 begin
-	include(joinpath(@__DIR__, "..", "_template_base.jl"))
-	using .PlutoTemplateBase
-	using CSV, DataFrames, Serialization, Statistics, StatsBase, DSP, Plots, Dates, InlineStrings, LinearAlgebra, Random, FFTW
+include(joinpath(@__DIR__, "..", "_template_base.jl"))
+using .PlutoTemplateBase
+using CSV, DataFrames, Serialization, Statistics, StatsBase, DSP, Plots, Dates, InlineStrings, LinearAlgebra, Random, FFTW
 end
 
-# ╔═╡ 789269a7-1c3a-41a2-811c-c5b8e08ee1f3
+# ╔═╡ b17f8e3c-8437-4658-baee-9fccb55991ea
 begin
 # Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
 # cargamos utilidades de rutas para disponer de `stage_dir`.
@@ -26,2331 +26,1257 @@ if !@isdefined(stage_dir)
 end
 end
 
-# ╔═╡ 7a5d6ddb-33a3-422a-88a4-f76fc8f0c620
+# ╔═╡ 9e06da1a-8985-43ed-a13e-4b0b4e34bbdd
 md"""
 **PAQUETES CARGADOS**
 """
 
-# ╔═╡ 177911fa-6acc-4cd5-b862-81fa0fef1daa
-begin
-# -----------------------------------------------------------------------------------
-# 1. Carga de datos filtrados (tras notch y bandreject, hp y lp filtrados)
-# -----------------------------------------------------------------------------------
-# Se cargan los datos EEG que ya han sido filtrados en pasos anteriores:
-# - Filtrado notch (eliminación de ruido de línea eléctrica)
-# - Filtrado bandreject (eliminación de bandas específicas)
-# - Filtrado highpass (eliminación de deriva de baja frecuencia)
-# - Filtrado lowpass (eliminación de frecuencias altas)
-#
-# Estos datos filtrados son la entrada para el análisis ICA.
-
-println("========================================")
-println("Paso 1: Carga de datos filtrados    ")
-println("========================================")
-
-# Directorio base para datos ICA (donde se guardarán los resultados)
-dir_ica = stage_dir(:ICA)
-path_dict_ica = joinpath(dir_ica, "dict_EEG_ICA.bin")
-
-# Directorio de datos filtrados (entrada para ICA)
-dir_filtering     = stage_dir(:filtering)
-path_dict_lowpass = joinpath(dir_filtering, "dict_EEG_Lowpass.bin")
-
-# Verificamos que el resultado del filtrado esté disponible
-if !isfile(path_dict_lowpass)
-    error("No se encontró $(abspath(path_dict_lowpass)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin.")
-end
-
-# Cargar diccionario con señales por canal
-dict_EEG = Serialization.deserialize(path_dict_lowpass)
-
-println("✓ Archivo: $(basename(path_dict_lowpass))")
-println()
-display(dict_EEG)
-println()
-end
-
-# ╔═╡ c5f19470-bda8-4420-b7f4-c3a1c94b4753
-begin
-# Orden estable y reproducible de canales (orden alfabético)
-# Esto asegura que la matriz X tenga un orden consistente
-channels   = sort(collect(keys(dict_EEG)))
-n_channels = length(channels)
-first_ch   = first(channels)
-n_samples  = length(dict_EEG[first_ch])
-
-println("✓ Dimensiones: $n_channels canales × $n_samples muestras")
-println("✓ Canales (ordenados): $(join(channels, ", "))")
-println()
-end
-
-# ╔═╡ c8aaf8df-4f1b-4c07-84fd-8a5eb18ab0a7
+# ╔═╡ 8c8b3d9d-a425-4c48-8fdc-ac987a3cdb39
 notebook_intro("PROCESSING")
 
-# ╔═╡ 01b14950-89b8-4df1-981f-44a13f6026cb
-md"""
-# ICA
+# ╔═╡ 9139e5ac-7c0a-43cd-aed4-44eb4eb3b115
+md"
+# Segmentación señal EEG
 
-Después del preprocesamiento (**Fase 1**), el **EEG filtrado** se descompone en **componentes estadísticamente independientes** para separar la actividad neuronal de artefactos típicos (oculares, musculares y ruido de línea).
+Esta rutina divide la señal **EEG** continua en segmentos temporales de longitud fija. Los datos ya han sido limpiados mediante **ICA** y están listos para ser segmentados.
 
-**ICA**, Análisis de Componentes Independientes, asume que la señal multicanal observada es una **mezcla lineal de fuentes latentes** que son mutuamente independientes y no gaussianas. Bajo este modelo, las observaciones pueden escribirse como ``X = A S`` donde ``X \in \mathbb{R}^{C \times N}`` es la matriz de C **canales** y N **muestras temporales**,``A \in \mathbb{R}^{C \times C}`` es la **matriz de mezcla** (pesos espaciales), y ``S \in \mathbb{R}^{C \times N}`` contiene las **señales fuente independientes**.
+**PROCESO:**
+   1. Carga datos continuos después de ICA cleaning
+   2. Configura parámetros de segmentación (longitud, solapamiento)
+   3. Divide la señal en segmentos consecutivos de longitud fija
+   4. Crea una hipermatriz 3D: (canales × muestras × segmentos)
+   5. Calcula estadísticas por segmento
+   6. Genera visualizaciones de ejemplo
+   7. Guarda hipermatriz segmentada y metadatos
 
-El objetivo es estimar una **matriz de desmezcla** ``W`` tal que ``S = W X`` recupere las fuentes originales (salvo permutación y signo).
+**CONFIGURACIÓN:**
+   - Longitud de segmento: 1.00 s (500 muestras a 500 Hz)
+   - Solapamiento: 0.00 s (segmentos consecutivos sin solapamiento)
+   - Skip bad intervals: No (no se implementa actualmente)
 
-Debido a que la suma de variables aleatorias independientes tiende a ser gaussiana (*teorema central del límite*), **ICA** identifica las fuentes **maximizando la no gaussianidad** de las señales proyectadas.
-"""
+**Justificación Técnica:**
 
-# ╔═╡ 09a79ac1-4430-4729-bca5-5425a2ba330e
+Se usaron segmentos de 1 s para favorecer la resolución espectral posterior (resolución ~1 Hz = fs/longitud_segmento). No se aplicó solapamiento para facilitar el cómputo de FFT y SNR por segmento, y para mantener segmentos estadísticamente independientes. En resting state con análisis espectral, este enfoque es válido y compatible con el método clásico de Welch si posteriormente se aplica promediado espectral. La hipermatriz resultante permite análisis por segmento (p.ej., artifact rejection) y promediado posterior.
+"
+
+# ╔═╡ 91f7264e-9f4e-4ea1-95c0-77d9de3e6bbd
+md"
+## Carga de datos (ICA cleaning)
+
+Se cargan los datos **EEG** que ya han sido limpiados mediante **ICA**. Los datos están en formato de diccionario (un vector por canal) y representan señales continuas que serán divididas en segmentos temporales.
+"
+
+# ╔═╡ 30ff2319-076f-43c2-a134-9016be56e46c
 begin
-# Construir matriz X: canales × muestras
-# Cada fila corresponde a un canal, cada columna a una muestra temporal
-X = Array{Float64}(undef, n_channels, n_samples)
-end
-
-# ╔═╡ 7523a05e-bb9e-48bc-9720-9a6178941273
-begin
-# Rellenar la matriz X con los datos de cada canal
-# Se verifica que todos los canales tengan la misma longitud
-for (i, ch) in enumerate(channels)
-    sig = dict_EEG[ch]
-    @assert length(sig) == n_samples "Canal $ch con longitud distinta"
-    X[i, :] = sig
-end
-end
-
-# ╔═╡ 580b258a-cde8-4c8a-bdd4-5c71f411cc6b
-begin
-# Número de componentes ICA a extraer
-# En ICA, típicamente se extraen tantos componentes como canales hay
-k = n_channels  
-
-println("ICA: $n_channels canales, $n_samples muestras, $k componentes")
+println("=" ^ 80)
+println("📊 SEGMENTACIÓN DE SEÑALES EEG")
+println("=" ^ 80)
 println()
+
+# Cargar datos desde el paso anterior (ICA cleaning)
+# Estos datos ya están libres de artefactos y listos para segmentar
+dir_ica_cleaning = stage_dir(:ICA)
+path_dict_ica_cleaning = joinpath(dir_ica_cleaning, "dict_EEG_ICA_clean.bin")
+dict_EEG_ICA_clean = Serialization.deserialize(path_dict_ica_cleaning)
+
+println("✔ Datos de ICA cleaning cargados desde: $(basename(path_dict_ica_cleaning))")
 end
 
-# ╔═╡ d9936d83-6fae-47af-9890-4c0594e2c782
-md"
----
-
-## Algoritmo Fast-ICA simétrico
-
-La implementación utiliza el algoritmo **FastICA simétrico**. Primero, los datos se **centran** (media cero por canal) y posteriormente se **blanquean** mediante PCA para que los datos blanqueados ``Z`` tengan **covarianza identidad**.
-
-El número de componentes se fija igual al número de canales ``k = C``. Esto conserva todas las dimensiones espaciales y permite que el paso posterior de limpieza asigne varianza a componentes neuronales o artefactuales.
-
-La proporción de varianza explicada por cada componente puede calcularse a partir de los autovalores de **PCA** y utilizarse para control de calidad (por ejemplo, detectar sujetos con varianza anormalmente baja en los primeros componentes).
-
-En el espacio blanqueado, la matriz de desmezcla es **ortogonal**. **FastICA** actualiza iterativamente una matriz ortogonal ``W`` maximizando una función de contraste que aproxima la **negentropía**. En esta implementación se utiliza la no linealidad ``g(u) = \tanh(a u)`` con ``a = 1`` adecuada para fuentes supergaussianas (por ejemplo, artefactos oculares o musculares).
-
-En cada iteración se calcula ``Y = W Z`` se aplica la función \(g\) y su derivada, y se actualiza \(W\) mediante un paso tipo Newton seguido de **decorrelación simétrica**, de modo que
-
-```math
-W W^{\top} \approx I
-```
-
-La convergencia se verifica mediante
-
-```math
-\max_i \left|1 - \left| w_i^{new} \cdot w_i^{old} \right|\right| < \tau
-```
-
-por ejemplo con ``\tau = 10^{-7}``.
-
-Finalmente, las salidas del algoritmo son:
-
-- los **componentes independientes**
-
-```math
-S
-```
-
-- la **matriz de desmezcla total**
-
-```math
-W_{\mathrm{total}} = W V_{\mathrm{whit}}
-```
-
-- la **matriz de mezcla**
-
-```math
-A = W_{\mathrm{total}}^{-1}
-```
-
-cuyas columnas representan los **mapas topográficos** de cada componente.
-
-El **Algoritmo FastICA** resume el procedimiento **FastICA** simétrico utilizado en `src/ICA.jl`.
-"
-
-# ╔═╡ 9fd4518f-a809-4c1e-8a6f-ca26a557094e
-md"
----
-
-## Funciones auxiliares 
-
-Estas funciones son necesarias para el preprocesamiento de datos antes de aplicar
-**Fast-ICA**:
-
-- [whiten_pca] El **blanqueo** reduce la dimensionalidad y elimina correlaciones de segundo orden
-- [sym_decorrelation] La **ortonormalización simétrica** mantiene las filas de W ortogonales durante la optimización
-"
-
-# ╔═╡ 98207097-b070-4b07-8ff5-1d29e64e5142
-begin
-"""
-    whiten_pca(X, k)
-
-Blanqueo (PCA whitening / probabilistic sphering).
-Transforma los datos X de manera que la matriz de covarianza de los datos
-blanqueados sea aproximadamente la identidad (cov(Z) ≈ I).
-
-PROCESO:
-  1. Calcula la matriz de covarianza de X
-  2. Realiza descomposición en autovalores/autovectores (PCA)
-  3. Selecciona las k primeras componentes principales
-  4. Aplica transformación de blanqueo: Z = Λ^(-1/2) * E' * X
-     donde Λ contiene los autovalores y E los autovectores
-
-Entrada:
-  X :: Matrix{Float64}    # (n_channels × n_samples)
-  k :: Int                # nº de componentes a mantener (≤ n_channels)
-
-Salida:
-  Z       :: Matrix{Float64}  # datos blanqueados (k × n_samples), cov(Z) ≈ I
-  V_whit  :: Matrix{Float64}  # matriz de blanqueo (k × n_channels)
-"""
-function whiten_pca(X::AbstractMatrix{<:Real}, k::Int)
-    n_channels, n_samples = size(X)
-
-    @assert 1 ≤ k ≤ n_channels "k debe estar entre 1 y n_channels"
-
-    # Matriz de covarianza: (n_channels × n_channels)
-    # cov = (1/N) * X * X'
-    # Mide las correlaciones entre canales
-    CovX = (X * X') / n_samples
-
-    # Descomposición en autovalores/autovectores (PCA)
-    # Los autovectores (E) son las direcciones de máxima varianza
-    # Los autovalores (λ) son las varianzas en esas direcciones
-    F = eigen(Symmetric(CovX))  # aseguramos simetría numérica
-    eigvals  = F.values         # vector (n_channels)
-    eigvecs  = F.vectors        # matriz (n_channels × n_channels), columnas = autovectores
-
-    # Ordenar autovalores y autovectores de mayor a menor
-    # Las componentes principales más importantes primero
-    idx = sortperm(eigvals; rev = true)
-    eigvals = eigvals[idx]
-    eigvecs = eigvecs[:, idx]
-
-    # Nos quedamos con las k primeras componentes principales
-    # Esto reduce la dimensionalidad de n_channels a k
-    λ_k = eigvals[1:k]
-    E_k = eigvecs[:, 1:k]   # (n_channels × k)
-
-    # Matriz diagonal de λ^(-1/2)
-    # Normaliza las varianzas a 1 (blanqueo)
-    Λ_inv_sqrt = Diagonal(1 ./ sqrt.(λ_k))   # (k × k)
-
-    # Matriz de blanqueo: V = Λ^(-1/2) * E'
-    # Tamaño: (k × n_channels)
-    # Esta matriz transforma X en datos blanqueados Z
-    V_whit = Λ_inv_sqrt * E_k'
-
-    # Datos blanqueados: Z = V * X  (k × n_samples)
-    # Z tiene covarianza aproximadamente igual a la identidad
-    Z = V_whit * X
-
-    return Z, V_whit
-end
-end
-
-# ╔═╡ ad20b61f-27c5-46bd-b7c4-2d5125a523b7
-begin
-"""
-    sym_decorrelation(W)
-
-Ortonormalización simétrica de W (symmetric decorrelation),
-tal y como se usa en FastICA.
-
-Esta función asegura que las filas de W sean ortonormales (W*W' ≈ I),
-lo cual es necesario para que FastICA extraiga componentes independientes
-y no correlacionadas.
-
-PROCESO:
-  1. Calcula C = W * W' (matriz de productos internos entre filas)
-  2. Encuentra C^(-1/2) mediante descomposición en autovalores
-  3. Aplica transformación: W_ortho = C^(-1/2) * W
-
-Entrada:
-  W :: Matrix{Float64}  # (k × k)
-
-Salida:
-  W_ortho :: Matrix{Float64}  # filas ortonormales, W*W' ≈ I
-"""
-function sym_decorrelation(W::AbstractMatrix{<:Real})
-    # C = W * W'
-    # Matriz de productos internos entre las filas de W
-    C = W * W'
-
-    # Descomposición propia de C
-    # Necesaria para calcular C^(-1/2)
-    F = eigen(Symmetric(C))
-    E = F.vectors          # autovectores (k × k)
-    d = F.values           # autovalores  (k)
-
-    # C^(-1/2) = E * diag(1/sqrt(d)) * E'
-    # Raíz cuadrada inversa de C mediante descomposición espectral
-    C_inv_sqrt = E * Diagonal(1 ./ sqrt.(d)) * E'
-
-    # W_ortho = C^(-1/2) * W
-    # Transformación que hace que las filas de W sean ortonormales
-    W_ortho = C_inv_sqrt * W
-    return W_ortho
-end
-end
-
-# ╔═╡ 3b9148cd-9027-42e5-9446-b1b1d1c39fdf
-md"
----
-## Pseudo-código Fast-ICA simétrico
-
-**Fast-ICA** (súper gaussiano, tanh) es un algoritmo iterativo que encuentra componentes estadísticamente
-independientes maximizando la no-gaussianidad mediante el método de Newton.
-
-PRINCIPIO: El **Teorema del Límite Central** establece que la suma de variables
-aleatorias independientes tiende a ser gaussiana. Por tanto, para encontrar
-componentes independientes, buscamos señales que sean lo más no-gaussianas posible.
-
-ALGORITMO:
-   1. **Centrado**: eliminar la media de cada canal
-   2. **Blanqueo**: reducir dimensionalidad y eliminar correlaciones (PCA whitening)
-   3. **Inicialización**: matriz W aleatoria y ortonormalizada
-   4. **Iteración** (hasta convergencia o max_iter):
-      - Proyectar: Y = W * Z
-      - Aplicar función no lineal: g(Y) = tanh(a*Y)
-      - Actualizar W según gradiente de no-gaussianidad
-      - Ortonormalizar W (symmetric decorrelation)
-      - Verificar convergencia
-   5. **Construir salidas**: S, W_total, A
-"
-
-# ╔═╡ 04fd2eda-02c4-49b5-ac82-c747a300bdf4
-md"""
-!!! info "Algoritmo FastICA simétrico (implementación en `ICA.jl`)"
-
-    **Entrada:**  
-    ``X ∈ ℝ^{C × N}`` (**EEG filtrado**),  
-    `k = C`, `max_iter`, `tol`, `a`, `seed`
-
-    1. Centrado de los datos
-
-       ```julia
-       for i = 1 to C
-           Xc[i,:] ← X[i,:] − mean(X[i,:])
-       end
-       ```
-
-    2. Blanqueamiento (**whitening**)
-
-       ```text
-       Cx ← (1/N) · Xc · Xcᵀ
-       [E, Λ] ← eig(Cx)
-       Z ← Λ^{-1/2} · Eᵀ · Xc      (usar k componentes)
-       ```
-
-    3. Inicialización de la matriz de separación
-
-       ```julia
-       set random seed
-       W ← randn(k,k)
-       W ← sym_decorrelation(W)
-       ```
-
-    4. Iteración principal (**FastICA simétrico**)
-
-       ```julia
-       for iter = 1 to max_iter
-
-           Y  ← W · Z
-
-           GY ← tanh(a · Y)
-           G' ← a · (1 − tanh(a · Y)^2)
-
-           D  ← diag(mean(G', dims=2))
-
-           W_new ← (1/N) · GY · Zᵀ − D · W
-           W_new ← sym_decorrelation(W_new)
-
-           M ← W_new · Wᵀ
-           max_diff ← max_i |1 − |M_ii||
-
-           if max_diff < tol
-               W ← W_new
-               break
-           end
-
-           W ← W_new
-
-       end
-       ```
-
-    5. Reconstrucción de componentes independientes
-
-       ```julia
-       S        ← W · Z
-       W_total  ← W · V_whit
-       A        ← inv(W_total)
-       ```
-
-    **Salida:**  
-    - `S` (componentes independientes),  
-    - `W_total` (matriz de separación total),  
-    - `A` (matriz de mezcla).
-"""
-
-# ╔═╡ 62db513e-efef-4f65-898e-4d1283e3c55a
-begin
-"""
-    fastica(X; n_comp, max_iter, tol, a, seed)
-
-Aplica FastICA simétrico a la matriz X para extraer componentes independientes.
-
-El algoritmo busca maximizar la no-gaussianidad de las componentes extraídas
-usando la función tanh como aproximación de la negentropía (medida de no-gaussianidad).
-
-Entrada:
-  X         :: Matrix{Float64}     # (n_channels × n_samples), ya filtrado
-  n_comp    :: Int                 # nº de componentes ICA a extraer
-  max_iter  :: Int                 # máximo nº de iteraciones
-  tol       :: Float64             # tolerancia de convergencia
-  a         :: Float64             # parámetro de tanh (g(u) = tanh(a*u))
-  seed      :: Int                 # semilla para reproducibilidad
-
-Salida:
-  S        :: Matrix{Float64}  # (n_comp × n_samples), señales independientes
-  W_total  :: Matrix{Float64}  # (n_comp × n_channels), matriz de desmezcla total
-  A        :: Matrix{Float64}  # (n_channels × n_comp), matriz de mezcla
-"""
-function fastica(
-    X::AbstractMatrix{<:Real};
-    n_comp::Int,
-    max_iter::Int = 512,
-    tol::Float64 = 1e-7,
-    a::Float64 = 1.0,
-    seed::Int = 1234,
-)
-
-    # --------------------------
-    # 0) Preparativos
-    # --------------------------
-    n_channels, n_samples = size(X)
-    @assert 1 ≤ n_comp ≤ n_channels "n_comp debe estar entre 1 y n_channels"
-
-    # --------------------------
-    # 1) Centrado por canal
-    #    (media cero en cada fila)
-    # --------------------------
-    # ICA requiere que los datos tengan media cero. Se centra cada canal
-    # restando su media, lo que elimina el componente DC (corriente continua).
-    Xc = copy(Matrix{Float64}(X))  # copiamos a matriz densa de Float64
-    for i in 1:n_channels
-        μ = mean(Xc[i, :])
-        Xc[i, :] .-= μ
-    end
-
-    # --------------------------
-    # 2) Blanqueo (PCA whitening)
-    #    Obtendremos:
-    #    - Z: datos blanqueados (n_comp × n_samples)
-    #    - V_whit: matriz de blanqueo (n_comp × n_channels)
-    # --------------------------
-    # El blanqueo reduce la dimensionalidad y elimina correlaciones de segundo orden.
-    # Esto simplifica el problema: en lugar de buscar componentes independientes
-    # en el espacio original, las buscamos en el espacio blanqueado donde solo
-    # necesitamos una matriz ortogonal W (más fácil de optimizar).
-    Z, V_whit = whiten_pca(Xc, n_comp)
-
-    # --------------------------
-    # 3) Inicialización de W (k × k)
-    #    W trabaja en el espacio blanqueado
-    # --------------------------
-    # W es la matriz de desmezcla en el espacio blanqueado.
-    # Se inicializa aleatoriamente y luego se ortonormaliza para que sus filas
-    # sean ortogonales (esto asegura que las componentes extraídas sean ortogonales).
-    Random.seed!(seed)    # para reproducibilidad
-    W = randn(n_comp, n_comp)  # inicialización aleatoria
-
-    # Ortonormalizar W inicialmente
-    # Esto asegura que las filas de W sean ortogonales desde el inicio
-    W = sym_decorrelation(W)
-
-    # --------------------------
-    # 4) Bucle principal de FastICA
-    # --------------------------
-    # En cada iteración, se actualiza W para maximizar la no-gaussianidad
-    # de las componentes Y = W * Z. La función tanh aproxima la negentropía,
-    # que es una medida de no-gaussianidad.
-    for iter in 1:max_iter
-        # Proyección actual: Y = W * Z
-        # Y: (n_comp × n_samples)
-        # Y contiene las componentes actuales en el espacio blanqueado
-        Y = W * Z
-
-        # No linealidad supergaussiana:
-        #   g(u)  = tanh(a*u)  - función de contraste (aproxima negentropía)
-        #   g'(u) = a * (1 - tanh(a*u)^2)  - derivada de g
-        # La función tanh es adecuada para señales supergaussianas (con picos),
-        # que es típico en artefactos como parpadeos o actividad muscular.
-        GY = tanh.(a .* Y)                      # g(Y)
-        Gp = a .* (1 .- tanh.(a .* Y).^2)       # g'(Y)
-
-        # Medias de g'(Y) sobre las muestras (por fila)
-        # Estas medias se usan en la actualización de W
-        mean_Gp = mean(Gp, dims = 2)           # (n_comp × 1)
-        D = Diagonal(vec(mean_Gp))             # diag de medias
-
-        # Actualización tipo FastICA simétrico:
-        #   W_new = (1/N) * GY * Z' - D * W
-        # Esta fórmula proviene del método de Newton aplicado a la maximización
-        # de la negentropía. El primer término es el gradiente, el segundo
-        # es un término de normalización.
-        W_new = (GY * Z') / n_samples - D * W
-
-        # Ortonormalización simétrica
-        # Asegura que las filas de W_new sean ortogonales, lo cual garantiza
-        # que las componentes extraídas sean ortogonales (y por tanto independientes
-        # en el espacio blanqueado).
-        W_new = sym_decorrelation(W_new)
-
-        # ----------------------
-        # 4.1) Criterio de convergencia
-        #      max_i |1 - |w_i_new ⋅ w_i_old|| < tol
-        # ----------------------
-        # Se verifica si las filas de W han cambiado significativamente.
-        # Si el producto interno entre w_i_new y w_i_old es cercano a 1 (o -1),
-        # significa que la dirección no ha cambiado mucho → convergencia.
-        M = W_new * W'                         # productos internos entre filas
-        diagM = diag(M)                         # productos internos de cada fila consigo misma
-        max_diff = maximum(abs.(1 .- abs.(diagM)))  # diferencia máxima
-
-        println("Iteración $iter  ->  max_diff = $max_diff")
-
-        # Si convergió, actualizamos W y salimos
-        if max_diff < tol
-            println("✔ Convergencia alcanzada en $iter iteraciones (tol = $tol)")
-            W = W_new
-            break
-        end
-
-        # Preparar siguiente iteración
-        W = W_new
-
-        # Si llegamos al final sin romper, informamos
-        if iter == max_iter
-            println("⚠ Se alcanzó max_iter = $max_iter sin converger (max_diff = $max_diff)")
-        end
-    end
-
-    # --------------------------
-    # 5) Construir salidas
-    # --------------------------
-    # Una vez convergido el algoritmo, construimos las matrices finales:
-    # - S: componentes independientes (señales fuente)
-    # - W_total: matriz de desmezcla total (del espacio original al de componentes)
-    # - A: matriz de mezcla (del espacio de componentes al original)
-
-    # Componentes independientes en el espacio blanqueado:
-    # S = W * Z   (n_comp × n_samples)
-    # Cada fila de S es una componente independiente (IC)
-    S = W * Z
-
-    # Matriz de desmezcla total:
-    #   S = W * Z = W * V_whit * Xc = W_total * Xc
-    #   => W_total = W * V_whit
-    # W_total transforma directamente los datos centrados Xc a componentes S
-    # Tamaño: (n_comp × n_channels)
-    W_total = W * V_whit
-
-    # Matriz de mezcla aproximada:
-    #   Xc ≈ A * S
-    # A es la inversa de W_total y representa cómo se mezclan las componentes
-    # para reconstruir los datos originales. Las columnas de A son los mapas
-    # topográficos de cada componente (pesos espaciales).
-    # Tamaño: (n_channels × n_comp)
-    A = inv(W_total)
-
-    return S, W_total, A
-end
-end
-
-# ╔═╡ 818a6675-189e-44fe-abb5-94a1dab065ea
-md"
-## Ejecutar ICA sobre X
-
-Se ejecuta el algoritmo **Fast-ICA** con los parámetros especificados. Los parámetros pueden ajustarse según las características de los datos:
-- **max_iter**: número máximo de iteraciones (512 suele ser suficiente)
-- **tol**: tolerancia de convergencia (1e-7 es estricto, asegura buena convergencia)
-- **a**: parámetro de la función tanh (1.0 es el valor estándar)
-- **seed**: semilla para reproducibilidad
-"
-
-# ╔═╡ 7e8b0401-0b43-43e4-a3f2-6f51c471da46
-begin
-println("🚀 Ejecutando FastICA...")
-
-n_comp    = k          # nº de componentes ICA = nº canales
-max_iter  = 512        # máximo número de iteraciones permitidas
-tol       = 1e-7       # criterio de convergencia (cuando max_diff < tol, se detiene)
-a         = 1.0        # parámetro de tanh(a*u), valor típico en FastICA
-seed      = 1234       # semilla para reproducibilidad (inicialización aleatoria)
-println("n_comp: ", n_comp)
-println("max_iter: ", max_iter)
-println("tol: ", tol)
-println("a: ", a)
-println("seed: ", seed)
-end
-
-# ╔═╡ c289b2e6-294e-48ea-a8c7-75f1d5448d13
-begin
-# Ejecutar FastICA
-# Esta función realizará todo el proceso: centrado, blanqueo, optimización iterativa
-S, W_total, A = fastica(
-    X;
-    n_comp   = n_comp,
-    max_iter = max_iter,
-    tol      = tol,
-    a        = a,
-    seed     = seed,
-)
-
-println()
-println("✅ ICA completado")
-println("  - S (componentes): size = ", size(S))
-println("  - W_total (desmezcla): size = ", size(W_total))
-println("  - A (mezcla): size = ", size(A))
-println()
-end
-
-# ╔═╡ a036b633-2812-444e-9f72-7117faaac04e
-md"
-## Diccionario de datos ICA
-
-Se guardan todos los resultados del análisis **ICA** en un diccionario serializado.
-Este diccionario será usado por la rutina de limpieza (**ICA_cleaning.jl**) para:
-- Visualizar las componentes (mapas topográficos, time courses, espectros)
-- Evaluar y etiquetar componentes artefactuales
-- Reconstruir los datos limpios eliminando componentes artefactuales
-"
-
-# ╔═╡ c5ddf477-9edd-4ce7-aefa-d9a17b0c0fe0
-begin
-# Creamos el diccionario de resultados ICA
-dict_EEG_ICA = Dict(
-    "S"         => S,          # componentes independientes (n_comp × n_samples)
-                                # Cada fila es una componente IC (señal fuente)
-    "W_total"   => W_total,    # desmezcla total (n_comp × n_channels)
-                                # Transforma datos centrados Xc a componentes S
-    "A"         => A,          # mezcla aproximada (n_channels × n_comp)
-                                # Columnas de A son mapas topográficos de cada IC
-    "channels"  => channels,   # orden de canales (necesario para reconstrucción)
-    "max_iter"  => max_iter,   # parámetros usados (para referencia)
-    "tol"       => tol,         # parámetros usados (para referencia)
-)
-
-# Nos aseguramos de que el directorio exista
-isdir(dir_ica) || mkpath(dir_ica)
-
-# Serializar y guardar el diccionario
-# El formato binario es eficiente para matrices grandes
-Serialization.serialize(path_dict_ica, dict_EEG_ICA)
-
-println("💾 Resultados ICA guardados en: $path_dict_ica")
-end
-
-# ╔═╡ eed453df-7646-41a7-af88-c5beb48902cd
-md"
----
-# ICA cleaning
-
-Esta rutina evalúa, identifica y elimina componentes artefactuales de los datos
-descompuestos mediante **ICA**. Utiliza un sistema automático de evaluación basado
-en features espaciales, espectrales y estadísticas para clasificar componentes
-como artefactos o señales neuronales.
-
-**PROCESO COMPLETO**:
-
-   1. Preliminares: cálculo de métricas de referencia (datos pre-ICA)
-   2. Carga de resultados ICA (matrices S, A, W_total)
-   3. Carga de posiciones de electrodos (para mapas topográficos)
-   4. Generación automática de visualizaciones para todos los ICs
-   5. Evaluación automática mediante sistema de features y scores
-   6. Selección y eliminación de componentes artefactuales
-   7. Reconstrucción de datos limpios
-   8. Visualización comparativa antes/después
-"
-
-# ╔═╡ 76fb19ba-33ed-4214-992e-a3d1f0a1983f
-md"
-
-La etapa de limpieza (`src/ICA_cleaning.jl`) toma los resultados de la anterior y evalúa cada componente independiente utilizando características espaciales, espectrales y estadísticas.
-
-Las **características espaciales** incluyen `frontal_ratio` y `temporal_ratio`, calculadas a partir de las columnas de la matriz de mezcla **A**.
-
-Las **características espectrales** incluyen:
-
-- `blink_ratio` (0.5–4 Hz frente a 4–40 Hz)
-- `emg_ratio` (30–80 Hz frente a 1–30 Hz)
-- `line_ratio` (48–52 Hz frente al espectro total)
-
-Las **características estadísticas** incluyen:
-
-- **kurtosis**
-- `extreme_frac`, definido como la fracción de muestras que superan ±5σ.
-
-Opcionalmente, la característica `corrEOG` utiliza canales EOG cuando están disponibles.
-
-Todas las características se normalizan mediante **z-score** y se combinan para obtener las puntuaciones:
-
-- `ocular_score`
-- `muscle_score`
-- `line_score`
-- `jump_score`
-
-La **puntuación global de artefacto**, `artifact_score`, se define como el máximo de estas puntuaciones.
-
-Los componentes con
-
-```math
-artifact\_score > 1.5
-```
-"
-
-# ╔═╡ f87ef5c2-1dfc-4d9a-be14-6238bf723025
-md"
-## Métricas cuantitativas
-
-Esta sección calcula métricas de referencia sobre los datos filtrados  
-(**antes del ICA**) para poder comparar posteriormente con los datos limpios.
-
-El objetivo es cuantificar propiedades estadísticas de la señal EEG que permitan
-evaluar la efectividad del proceso de limpieza mediante ICA.
-
-Se emplean dos métricas principales:
-
-**Kurtosis**
-
-- Mide el grado de **no-gaussianidad** de la señal.
-- Valores altos indican:
-  - Presencia de picos pronunciados
-  - Posibles outliers o artefactos
-- Es especialmente útil para detectar componentes no neuronales.
-
-**Energía**
-
-- Definida como la **varianza de la señal**.
-- Representa la **potencia** de la señal EEG.
-- Permite comparar cambios globales en la amplitud tras el procesamiento.
-
-Estas métricas sirven como referencia para:
-
-- Comparar señales **antes vs después del ICA**
-- Evaluar si el ICA ha:
-  - Reducido artefactos (↓ kurtosis)
-  - Modificado la potencia de la señal (energía)
-- Validar cuantitativamente el proceso de limpieza
-
-Trabajar con métricas cuantitativas complementa la inspección visual y permite
-una evaluación más objetiva del preprocesamiento de señales EEG.
-"
-
-# ╔═╡ 1eb23ea8-5f04-4b28-b293-b8b376f259fd
-begin
-println("=========================================================================")
-println("  Preliminares: Métricas cuantitativas (datos de dict_EEG_Lowpass.bin)")
-println("========================================================================\n")
-
-# Cargar datos filtrados (antes del ICA) con variables locales.
-# Esto evita conflictos de redefinición al copiar este bloque en Pluto.
-dict_EEG_Lowpass = let
-    dir_filtering_local = stage_dir(:filtering)
-    path_dict_lowpass_local = joinpath(dir_filtering_local, "dict_EEG_Lowpass.bin")
-
-    if !isfile(path_dict_lowpass_local)
-        error("No se encontró $(abspath(path_dict_lowpass_local)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin.")
-    end
-
-    println("✓ Archivo: $(basename(path_dict_lowpass_local))\n")
-    Serialization.deserialize(path_dict_lowpass_local)
-end
-end
-
-# ╔═╡ e2a46fba-a630-4be3-920b-1023ebbfb570
+# ╔═╡ c220c177-7b8e-40cd-8d99-4aae100de7fc
 begin
 # Obtener canales ordenados (orden alfabético para consistencia)
-channels_lowpass = sort(collect(keys(dict_EEG_Lowpass)))
-end
+# Todos los canales deben tener la misma longitud (n_samples_total)
+channels = sort(collect(keys(dict_EEG_ICA_clean)))
+n_channels = length(channels)
+n_samples_total = length(dict_EEG_ICA_clean[channels[1]])  # longitud de la señal continua
 
-# ╔═╡ eef5e8c8-5415-4407-8ad8-5b15dafcfb96
-begin
-# Calcular métricas para cada canal
-# Kurtosis: mide la "cola" de la distribución (valores extremos)
-# Energía: varianza de la señal (potencia)
-kurtosis_vals = Float64[]
-energy_vals = Float64[]
-
-for ch in channels_lowpass
-    signal = dict_EEG_Lowpass[ch]
-    push!(kurtosis_vals, kurtosis(signal))  # kurtosis de la señal
-    push!(energy_vals, var(signal))          # varianza = energía
-end
-
-# Crear DataFrame con las métricas para visualización
-df_metrics = DataFrame(
-    Canal = channels_lowpass,
-    Kurtosis = kurtosis_vals,
-    Energía = energy_vals
-)
-
-println("Kurtosis y Energía por canal (post filtrado):")
-display(df_metrics)
+println("  → Número de canales: $n_channels")
+println("  → Número total de muestras: $n_samples_total")
 println()
 end
 
-# ╔═╡ d290c6c6-eeca-4a72-87c6-6d5c4058736d
+# ╔═╡ 37f24271-0da7-4236-9d84-6210a1e5ac0f
 md"
-## Carga resultados de ICA
+## Configuración de segmentación
 
-Se cargan los resultados del análisis *ICA* realizado previamente:
+Se configuran los parámetros para dividir la señal continua en segmentos:
+   - Longitud del segmento: determina la duración de cada época
+   - Solapamiento: permite que segmentos se superpongan (0 = sin solapamiento)
+   - Paso entre segmentos: distancia entre el inicio de segmentos consecutivos
 
-   - **S**: componentes independientes (señales fuente)
-   - **W_total**: matriz de desmezcla total
-   - **A**: matriz de mezcla (columnas = mapas topográficos de cada IC)
-   - **channels**: orden de canales usado en el ICA
+**Configuración actual:**
 
-También se calculan métricas básicas (**kurtosis** y **energía**) para cada componente, que servirán como referencia para la evaluación posterior.
+   - Segmentos de 1 segundo (500 muestras a 500 Hz)
+   - Sin solapamiento (segmentos consecutivos e independientes)
+   - Resolución espectral resultante: ~1 Hz (fs / longitud_segmento)
 "
 
-# ╔═╡ d7d45a88-a256-462d-ada2-50622508b62c
+# ╔═╡ a83800b1-9df8-4536-9812-525bcad1902a
 begin
-dict_ICA = Serialization.deserialize(path_dict_ica)
-end
+fs = 500.0                    # Frecuencia de muestreo (Hz)
+segment_length_s = 1.00       # Longitud del segmento en segundos
+                              # Segmentos de 1 s son comunes para análisis espectral
+segment_overlap_s = 0.00      # Solapamiento en segundos
+                              # 0 = sin solapamiento (segmentos independientes)
+skip_bad_intervals = false    # No saltar intervalos malos
+                              # NOTA: Actualmente no se implementa esta funcionalidad
 
-# ╔═╡ 86cfb6a8-c4d0-4fe7-9626-65f82eede2b6
-begin
-println("✔ Carga de datos de ICA:")
-println("  S (n_comp × n_samples):        ", size(S))
-println("  W_total (n_comp × n_channels):  ", size(W_total))
-println("  A (n_channels × n_comp):        ", size(A))
-println("  channels: ", channels, "\n")
-end
+# Convertir tiempos a muestras
+segment_length_samples = Int(round(segment_length_s * fs))  # 500 muestras
+segment_overlap_samples = Int(round(segment_overlap_s * fs))  # 0 muestras
+segment_step_samples = segment_length_samples - segment_overlap_samples  # 500 muestras
+                               # Paso entre segmentos (inicio de uno al siguiente)
 
-# ╔═╡ f604db17-6269-4b09-b461-0f8f699d8485
-md"
-Calcular límite de color para mapas topográficos. Se usa el máximo absoluto de todos los pesos para normalizar la escala de colores
-"
-
-# ╔═╡ 5d86e143-86a3-4e46-98f2-e65266e9ea1a
-begin
-global topo_clim = maximum(abs, vec(A))
-println("Límite color: ", topo_clim)
-end
-
-# ╔═╡ 73fbcedf-3755-4f28-a308-94f4965feaca
-
-
-# ╔═╡ 0356c672-a4b1-4624-abcc-b97cf501cb8c
-begin
-# -----------------------------------------------------------------------------
-# 2. Cargar archivo TSV con posiciones de electrodos
-# -----------------------------------------------------------------------------
-# Se cargan las coordenadas 3D (x, y, z) de los electrodos desde un archivo TSV.
-# Estas coordenadas son necesarias para generar los mapas topográficos de las
-# componentes ICA. Los mapas topográficos muestran cómo se distribuyen espacialmente
-# los pesos de cada componente sobre el cuero cabelludo.
-
-dir_electrodes = electrodes_dir()
-path_elec      = joinpath(dir_electrodes, "sub-M05_ses-T2_electrodes.tsv")
-
-# Leer archivo TSV con información de electrodos
-df_elec = CSV.read(path_elec, DataFrame; delim = '\t')
-
-println("📍 Electrodos cargados:")
-display(first(df_elec, 5))
+println("⚙️  CONFIGURACIÓN DE SEGMENTACIÓN")
+println("-" ^ 50)
+println("Frecuencia de muestreo: $(fs) Hz")
+println("Longitud del segmento: $(segment_length_s) s ($(segment_length_samples) muestras)")
+println("Solapamiento: $(segment_overlap_s) s ($(segment_overlap_samples) muestras)")
+println("Paso entre segmentos: $(segment_step_samples) muestras")
+println("Saltar intervalos malos: $(skip_bad_intervals)")
 println()
-
-# Filtramos solo electrodos de tipo EEG
-# El archivo puede contener otros tipos de electrodos (EOG, EMG, etc.)
-df_eeg = filter(row -> row.type == "EEG", df_elec)
-
-println("Electrodos EEG detectados:")
-display(df_eeg[:, [:name, :x, :y, :z]])
-
-# Crear diccionario nombre → coordenadas (x, y, z)
-# Facilita el acceso rápido a las coordenadas por nombre de canal
-elec_pos = Dict{String, Tuple{Float64,Float64,Float64}}()
-
-for row in eachrow(df_eeg)
-    elec_pos[String(row.name)] = (Float64(row.x), Float64(row.y), Float64(row.z))
 end
 
-# Verificar que todos los canales del ICA tengan coordenadas
-# Si falta alguna posición, no se podrá dibujar el mapa topográfico completo
-missing_ch = String[]
-for ch in channels
-    if !haskey(elec_pos, ch)
-        push!(missing_ch, ch)
-    end
-end
-
-if !isempty(missing_ch)
-    println("⚠ Ojo: faltan posiciones para estos canales: ", missing_ch)
-else
-    println("✅ Todos los canales tienen coordenadas.\n")
-end
-end
-
-# ╔═╡ 70d2ad9e-2a67-48b0-a5a3-a64b9fc974b0
-md"
-**CARGA FUNCIONES**
-"
-
-# ╔═╡ 282c6662-55e5-44a6-9af1-030b73b6545e
+# ╔═╡ 08cdbdf3-e827-4aea-a40b-6f157fe0ba5b
 begin
-"""
-    project_elec_xy(elec_pos::Dict{String,Tuple{Float64,Float64,Float64}}, channels)
+# Calcular número de segmentos completos que caben en la señal
+# Fórmula: número de segmentos = floor((total - longitud) / paso) + 1
+# Esto asegura que todos los segmentos tengan la longitud completa
+n_segments = Int(floor((n_samples_total - segment_length_samples) / segment_step_samples)) + 1
 
-Proyecta coordenadas 3D (x,y,z) sobre un disco 2D (top-down)
-usando una proyección azimutal tipo EEGLAB.
+println("📐 CÁLCULO DE SEGMENTOS")
+println("-" ^ 40)
+println("Número de segmentos completos: $n_segments")
+println("Muestras por segmento: $segment_length_samples")
+println("Muestras totales utilizadas: $(n_segments * segment_step_samples)")
+# Las muestras finales que no forman un segmento completo se descartan
+if n_segments * segment_step_samples < n_samples_total
+    muestras_no_usadas = n_samples_total - (n_segments * segment_step_samples)
+    println("Muestras no utilizadas (final): $muestras_no_usadas")
+end
+println()
+end
 
-Esta función convierte las coordenadas 3D de los electrodos en coordenadas 2D
-para poder dibujar mapas topográficos en un plano. La proyección es similar
-a la usada en EEGLAB: los electrodos en la parte superior de la cabeza (z alto)
-se proyectan cerca del centro, y los del ecuador (z=0) se proyectan cerca del borde.
+# ╔═╡ 00b7e07b-b25b-4a72-9a96-59e7f18430bb
+md"
+## Segmentación 
+
+Crear hipermatriz canales × muestras × segmentos
+
+Esta sección divide cada canal en segmentos consecutivos y los organiza en una hipermatriz 3D. Cada **rebanada** de la tercera dimensión es un segmento temporal completo con todos los canales.
 
 PROCESO:
-  1. Normaliza las coordenadas 3D a una esfera unitaria
-  2. Calcula el ángulo azimutal (θ) en el plano horizontal
-  3. Convierte la altura (z) en un radio (r) en el plano 2D
-  4. Proyecta usando coordenadas polares: (x, y) = (r*cos(θ), r*sin(θ))
 
-Devuelve:
-    xs2d::Vector{Float64}, ys2d::Vector{Float64}, mask_haspos::BitVector
-"""
-function project_elec_xy(elec_pos::Dict{String,Tuple{Float64,Float64,Float64}}, channels)
-    xs2d = Float64[]
-    ys2d = Float64[]
-    haspos = BitVector(undef, length(channels))
+Para cada canal:
 
-    # Normalizamos a radio 1 y proyectamos
-    # Cada electrodo se proyecta desde su posición 3D a coordenadas 2D
-    for (i, ch) in enumerate(channels)
-        if haskey(elec_pos, ch)
-            (x, y, z) = elec_pos[ch]
-            # Normalizar a esfera unitaria
-            r3 = sqrt(x^2 + y^2 + z^2) + eps()
-            x /= r3; y /= r3; z /= r3
+- Extrae la señal continua del diccionario
+- Calcula los índices de inicio y fin de cada segmento
+- Copia cada segmento a la hipermatriz
+- Los segmentos son consecutivos (sin solapamiento)
 
-            # Ángulo azimutal en el plano horizontal (0 a 2π)
-            θ = atan(y, x)
-            
-            # Convertir altura (z) a radio en el plano 2D
-            # z=1 (vértice) -> r=0, z=0 (ecuador) -> r≈1
-            r = (π/2 - asin(z)) / (π/2)         # en [0,1]
+RESULTADO:
 
-            # Proyección a coordenadas cartesianas 2D
-            push!(xs2d, r * cos(θ))
-            push!(ys2d, r * sin(θ))
-            haspos[i] = true
+Hipermatriz de tamaño (n_channels × segment_length_samples × n_segments)
+
+   - Primera dimensión: canales
+   - Segunda dimensión: muestras temporales dentro del segmento
+   - Tercera dimensión: segmentos (épocas)
+"
+
+# ╔═╡ f6f6044b-2d6c-4116-b4c9-529cdc7c7d1f
+begin
+println("🔄 PROCESANDO SEGMENTACIÓN")
+println("-" ^ 80)
+
+# Inicializar hipermatriz: canales × muestras × segmentos
+# Esta estructura permite acceso eficiente a segmentos individuales
+eeg_segmented = zeros(Float64, n_channels, segment_length_samples, n_segments)
+
+# Segmentar cada canal independientemente
+for (ch_idx, channel) in enumerate(channels)
+    signal = dict_EEG_ICA_clean[channel]  # señal continua del canal
+    
+    # Crear segmentos para este canal
+    for seg_idx in 1:n_segments
+        # Calcular índices del segmento en la señal continua
+        # start_idx: inicio del segmento (1-indexed)
+        # end_idx: fin del segmento
+        start_idx = (seg_idx - 1) * segment_step_samples + 1
+        end_idx = start_idx + segment_length_samples - 1
+        
+        # Verificar que no excedemos el límite de la señal
+        # Normalmente no debería pasar porque n_segments se calculó correctamente
+        if end_idx <= length(signal)
+            # Segmento completo: copiar directamente
+            eeg_segmented[ch_idx, :, seg_idx] = signal[start_idx:end_idx]
         else
-            # Si no hay posición, usar NaN (no se dibujará)
-            push!(xs2d, NaN)
-            push!(ys2d, NaN)
-            haspos[i] = false
+            # Si el último segmento excede (caso raro), truncar o rellenar
+            # En este caso, como calculamos n_segments correctamente, no debería pasar
+            available_samples = length(signal) - start_idx + 1
+            if available_samples > 0
+                # Copiar solo las muestras disponibles (truncar)
+                eeg_segmented[ch_idx, 1:available_samples, seg_idx] = signal[start_idx:length(signal)]
+                # El resto queda en cero (ya inicializado)
+            end
         end
     end
-
-    return xs2d, ys2d, haspos
+    
+    # Mostrar progreso cada 10 canales o al final
+    if ch_idx % 10 == 0 || ch_idx == n_channels
+        println("  ✓ Canal $ch_idx/$n_channels procesado: $channel")
+    end
 end
+
+println()
+println("✔ Segmentación completada")
+println("  → Dimensiones de la hipermatriz: $(size(eeg_segmented))")
+println("  → Formato: (canales × muestras × segmentos)")
+println()
 end
 
-# ╔═╡ 9f250578-81b4-486f-8d30-b54914158bf4
-xs2d_all, ys2d_all, haspos = project_elec_xy(elec_pos, channels)
-
-# ╔═╡ cda10a74-3790-499a-bc8a-2415bd3bb6cc
+# ╔═╡ 98d2ba11-2456-4a9b-9e0a-ab20b5bd276d
 md"
-Función para dibujar topografía de un componente **ICA** (A)  
+## Verificación de segmentos
+
+Esta sección calcula estadísticas descriptivas para cada segmento. Estas estadísticas ayudan a verificar que la segmentación se realizó correctamente y proporcionan información sobre la variabilidad entre segmentos.
+
+**Estadísticas calculadas**:
+
+   - **Media**: valor promedio de amplitud en el segmento
+   - **Std**: desviación estándar (variabilidad)
+   - **Min/Max**: valores extremos de amplitud
+   - **RMS**: raíz cuadrada de la media de los cuadrados (medida de potencia)
 "
 
-# ╔═╡ 753841c5-5b71-4fcf-a482-5a30317ecb29
+# ╔═╡ 7c15972a-dde7-45f6-8d18-b62da3587cc0
 begin
-"""
-    make_topomap_grid(xs, ys, vals; radius=1.0, n_grid=100, sigma=0.12)
+println("📊 ESTADÍSTICAS DE SEGMENTACIÓN")
+println("-" ^ 70)
 
-Genera una rejilla (X, Y, Z) para topomap interpolando `vals` en (xs,ys)
-mediante un kernel gaussiano con ancho `sigma`.
+# Calcular estadísticas por segmento
+# Se calculan sobre todos los canales y muestras de cada segmento
+segment_stats = DataFrame(
+    Segmento = 1:n_segments,
+    Media_µV = [mean(eeg_segmented[:, :, seg]) for seg in 1:n_segments],  # media global del segmento
+    Std_µV = [std(vec(eeg_segmented[:, :, seg])) for seg in 1:n_segments],  # desviación estándar
+    Min_µV = [minimum(eeg_segmented[:, :, seg]) for seg in 1:n_segments],    # valor mínimo
+    Max_µV = [maximum(eeg_segmented[:, :, seg]) for seg in 1:n_segments],    # valor máximo
+    RMS_µV = [sqrt(mean(eeg_segmented[:, :, seg].^2)) for seg in 1:n_segments]  # RMS (potencia)
+)
 
-Esta función crea una rejilla interpolada para visualizar mapas topográficos.
-Interpola los valores de los electrodos (vals) en una rejilla regular usando
-un kernel gaussiano. Esto permite crear mapas de contorno suaves que muestran
-la distribución espacial de los pesos de cada componente ICA.
+println("  → Estadísticas por segmento (primeros 5):")
+display(first(segment_stats, 5))
+println()
 
-PROCESO:
-  1. Crea una rejilla regular de n_grid × n_grid puntos
-  2. Para cada punto de la rejilla dentro del círculo:
-     - Calcula distancias a todos los electrodos
-     - Aplica pesos gaussianos según la distancia
-     - Interpola el valor como promedio ponderado
-  3. Puntos fuera del círculo quedan como NaN (no se dibujan)
-
-Parámetros:
-  - radius: radio del círculo de la cabeza (típicamente 1.0)
-  - n_grid: número de puntos en cada dimensión (mayor = más suave pero más lento)
-  - sigma: ancho del kernel gaussiano (mayor = interpolación más suave)
-
-Sólo rellena puntos dentro del círculo de radio `radius`.
-"""
-function make_topomap_grid(xs, ys, vals; radius=1.0, n_grid=100, sigma=0.12)
-    # Crear rejilla regular de coordenadas
-    xi = range(-radius, radius; length=n_grid)
-    yi = range(-radius, radius; length=n_grid)
-
-    # Matriz de valores interpolados (inicializada con NaN)
-    Z = fill(NaN, n_grid, n_grid)
-
-    # Para cada punto de la rejilla
-    for (ix, xg) in enumerate(xi), (iy, yg) in enumerate(yi)
-        # Verificar que el punto esté dentro del círculo
-        r = hypot(xg, yg)
-        r > radius && continue
-
-        # Calcular pesos gaussianos basados en distancia a electrodos
-        # Los electrodos más cercanos tienen mayor peso
-        d2 = (xs .- xg).^2 .+ (ys .- yg).^2  # distancias al cuadrado
-        w  = @. exp(-d2 / (2*sigma^2))        # pesos gaussianos
-
-        sw = sum(w)
-        sw == 0 && continue  # Si no hay electrodos cercanos, saltar
-
-        # Interpolación: promedio ponderado de valores de electrodos
-        Z[iy, ix] = sum(w .* vals) / sw
-    end
-
-    return xi, yi, Z
-end
+println("  → Resumen estadístico:")
+println("    Media global: $(round(mean(segment_stats.Media_µV), digits=3)) µV")
+println("    Std global: $(round(mean(segment_stats.Std_µV), digits=3)) µV")
+println("    RMS global: $(round(mean(segment_stats.RMS_µV), digits=3)) µV")
+println()
 end
 
-# ╔═╡ 1ef7f377-0d74-4e14-879e-30c13dd54df9
-begin
-"""
-    plot_ic_topography(ic; clim=nothing, n_grid=100)
-
-Dibuja el mapa topográfico de un componente ICA (tipo EEGLAB).
-
-El mapa topográfico muestra cómo se distribuyen espacialmente los pesos de una
-componente ICA sobre el cuero cabelludo. Esto es crucial para identificar el
-tipo de artefacto: componentes oculares tienen alta potencia frontal, componentes
-de EMG tienen alta potencia temporal, etc.
-
-ELEMENTOS DEL MAPA:
-  - Mapa interpolado con isolíneas: distribución suave de los pesos espaciales
-  - Círculo de cabeza: contorno del cuero cabelludo
-  - Nariz y orejas: referencias anatómicas
-  - Electrodos: puntos negros con etiquetas de nombres de canales
-  - Escala de colores: rojo = valores positivos, azul = valores negativos
-
-Parámetros:
-  - ic: índice del componente ICA a visualizar (1 a n_comp)
-  - clim: límites de color (opcional). Si es nothing, se usa auto-escala
-  - n_grid: resolución de la rejilla de interpolación (mayor = más suave)
-
-Devuelve un objeto Plot que puede ser mostrado o guardado.
-"""
-function plot_ic_topography(ic::Int; clim = nothing, n_grid::Int = 100)
-    n_channels, n_comp = size(A)
-    @assert 1 ≤ ic ≤ n_comp "ic debe estar entre 1 y $n_comp"
-
-    topo = A[:, ic]              # pesos espaciales del IC
-
-    # Usamos únicamente electrodos con posición conocida
-    xs = xs2d_all[haspos]
-    ys = ys2d_all[haspos]
-    vals = topo[haspos]
-
-    # Generar rejilla interpolada
-    xi, yi, Z = make_topomap_grid(xs, ys, vals; n_grid = n_grid)
-
-    # --- Mapa interpolado con isolíneas ---
-    plt = contourf(
-        xi, yi, Z;
-        levels = 15,
-        colorbar = true,
-        aspect_ratio = 1,
-        xlims = (-1, 1),
-        ylims = (-1, 1),
-        title = "Mapa componente $ic",
-        legend = false,
-        color = :jet,
-        clim = clim !== nothing ? clim : :auto,
-    )
-
-    # --- Cabeza: círculo, nariz y orejas ---
-    θ = range(0, 2π; length=200)
-    plot!(plt, cos.(θ), sin.(θ); lw=2, color=:black)   # contorno cabeza
-
-    # nariz
-    nose_x = [0.0, 0.08, 0.0, -0.08]
-    nose_y = [1.0, 1.08, 1.16, 1.08]
-    plot!(plt, nose_x, nose_y; lw=2, color=:black)
-
-    # orejas
-    ear_xL = [-1.02, -1.1, -1.12, -1.1, -1.02]
-    ear_yL = [ 0.2,  0.18,  0.0, -0.18, -0.2]
-    ear_xR =  .*(-1, ear_xL)
-    ear_yR = ear_yL
-    plot!(plt, ear_xL, ear_yL; lw=2, color=:black)
-    plot!(plt, ear_xR, ear_yR; lw=2, color=:black)
-
-    # --- Electrodos: puntos + etiquetas ---
-    scatter!(plt, xs, ys; ms=4, mc=:black, msw=0.5, ma=0.8)
-
-    for (i, ch) in enumerate(channels)
-        haspos[i] || continue
-        x = xs2d_all[i]
-        y = ys2d_all[i]
-        annotate!(plt, x, y, text(ch, 7, :black))
-    end
-
-    # quitamos ejes numéricos
-    plot!(plt, xticks = nothing, yticks = nothing, framestyle = :box)
-
-    return plt
-end
-end
-
-# ╔═╡ 2312ebe1-9c4c-4e26-856e-73c414d7441f
-begin
-"""
-    plot_ic_timecourse(ic; fs=nothing)
-
-Visualiza la serie temporal (time course) de un componente ICA.
-
-El time course muestra la actividad temporal de la componente a lo largo de
-todo el registro. Es útil para identificar:
-  - Parpadeos: picos grandes y abruptos
-  - EMG: actividad de alta frecuencia
-  - Saltos: valores extremos aislados
-  - Actividad neuronal: oscilaciones más regulares
-
-Parámetros:
-  - ic: índice del componente ICA a visualizar
-  - fs: frecuencia de muestreo (Hz). Si es nothing, se usa escala de muestras
-
-Devuelve un objeto Plot con la serie temporal.
-"""
-function plot_ic_timecourse(ic::Int; fs::Union{Nothing,Float64} = nothing)
-    n_comp, n_samples = size(S)
-    @assert 1 ≤ ic ≤ n_comp "ic debe estar entre 1 y $n_comp"
-
-    sig = S[ic, :]
-
-    if fs === nothing
-        t = 1:n_samples
-        xl = "Muestra"
-    else
-        t = (0:(n_samples-1)) ./ fs
-        xl = "Tiempo (s)"
-    end
-
-    plt = plot(
-        t, sig,
-        xlabel = xl,
-        ylabel = "Amplitud",
-        title = "Actividad componente $ic",
-        legend = false,
-    )
-
-    return plt
-end
-end
-
-# ╔═╡ 7077db9b-1233-4085-a6f3-e2e18d063c3c
-begin
-"""
-    calculate_PSD_signal(signal::AbstractVector, fs::Real)
-
-Calcula la PSD de una señal (p.ej. un componente ICA) usando Welch.
-Devuelve (freqs, power).
-"""
-function calculate_PSD_signal(signal::AbstractVector, fs::Real)
-    n_muestras = length(signal)
-
-    # quitar DC
-    sig = signal .- mean(signal)
-
-    p = welch_pgram(sig; fs = fs, window = hamming, nfft = n_muestras)
-    freqs = DSP.freq(p)
-    power = DSP.power(p)   # unidades ~ µV²/Hz si la señal está en µV
-
-    return freqs, power
-end
-end
-
-# ╔═╡ 77f56832-2314-4385-a847-571fa65eb65f
-begin
-"""
-    plot_ic_spectrum(ic; fs, fmax=50.0)
-
-Calcula y grafica el espectro de potencia (PSD) de un componente ICA.
-
-El espectro de potencia muestra la distribución de energía en frecuencias.
-Es crucial para identificar tipos de artefactos:
-  - Parpadeos: alta potencia en 0.5-4 Hz (banda delta/baja)
-  - EMG: alta potencia en 30-80 Hz (banda alta)
-  - Línea eléctrica: pico en 50 Hz (o 60 Hz según región)
-  - Actividad neuronal: potencia distribuida en bandas típicas (alpha, beta, etc.)
-
-El método usado es Welch (promedio de periodogramas con ventanas de Hamming),
-que proporciona estimaciones más suaves y estables que el periodograma simple.
-
-Parámetros:
-  - ic: índice del componente ICA a visualizar
-  - fs: frecuencia de muestreo (Hz) - requerido
-  - fmax: frecuencia máxima a mostrar (Hz). Por defecto 50.0
-
-Devuelve un objeto Plot con el espectro en escala logarítmica.
-"""
-function plot_ic_spectrum(ic::Int; fs::Real, fmax::Real = 50.0)
-    n_comp, n_samples = size(S)
-    @assert 1 ≤ ic ≤ n_comp "ic debe estar entre 1 y $n_comp"
-
-    signal = S[ic, :]
-
-    freqs, power = calculate_PSD_signal(signal, fs)
-
-    # Recortar a fmax
-    idx = freqs .<= fmax
-    freqs = freqs[idx]
-    power = power[idx]
-
-    # Escala logarítmica en potencia, igual que en tu función de canales
-    power_min, power_max = extrema(power)
-    y_min_log = floor(log10(power_min))
-    y_max_log = ceil(log10(power_max))
-    ylim_log = (10.0^y_min_log, 10.0^y_max_log)
-
-    p_spec = plot(
-        xlabel = "Frecuencia (Hz)",
-        ylabel = "Potencia (µV²/Hz)",
-        title  = "PSD componente $ic",
-        legend = false,
-        xlim   = (0, fmax),
-        yscale = :log10,
-        ylim   = ylim_log,
-    )
-
-    plot!(p_spec, freqs, power; lw = 2)  # opcional: label = "IC $ic"
-
-    return p_spec
-end
-end
-
-# ╔═╡ 0f1d4728-d74e-4871-9845-bd470e9c990b
-begin
-"""
-    plot_ic_summary(ic; fs)
-
-Crea una figura resumen tipo EEGLAB con tres paneles para un componente ICA.
-
-Esta función genera una visualización completa que combina las tres vistas
-principales de una componente ICA, similar a la interfaz de EEGLAB. Es la
-visualización estándar para inspección manual de componentes.
-
-PANELES:
-  1. Mapa topográfico (arriba izquierda):
-     - Muestra la distribución espacial de los pesos
-     - Útil para identificar localización del artefacto
-  2. Serie temporal (arriba derecha):
-     - Muestra la actividad temporal de la componente
-     - Útil para identificar patrones temporales
-  3. Espectro de potencia (abajo, ancho completo):
-     - Muestra la distribución espectral
-     - Útil para identificar características de frecuencia
-
-Esta visualización combinada permite una evaluación completa de cada componente
-para decidir si es artefacto o señal neuronal.
-
-Parámetros:
-  - ic: índice del componente ICA a visualizar
-  - fs: frecuencia de muestreo (Hz) - requerido
-
-Devuelve un objeto Plot con el layout combinado (2 filas, 2 columnas).
-"""
-function plot_ic_summary(ic::Int; fs::Float64)
-    p_topo     = plot_ic_topography(ic; clim = (-topo_clim, topo_clim))
-    p_activity = plot_ic_timecourse(ic; fs = fs)
-    p_spec     = plot_ic_spectrum(ic; fs = fs)
-
-    l = @layout [a b; c c]
-
-    fig = plot(p_topo, p_activity, p_spec,
-               layout = l, size = (900, 700))
-
-    display(fig)
-    return fig
-end
-end
-
-# ╔═╡ c8fb5e5f-ca7f-41f6-ad13-4d7211da73fc
+# ╔═╡ 212b3eb6-3a86-4e41-a230-6c8b92147573
 md"
----
-## Visualizaciones componentes ICA
+## Visualización de ejemplo
 
-Generar y guardar `plot_ic_summary` para todas las componentes ICA
+Esta sección genera visualizaciones para inspeccionar los segmentos creados:
 
-Esta sección genera automáticamente visualizaciones completas (tipo EEGLAB) para todas las componentes ICA. Cada visualización incluye:
-
-   - Mapa topográfico (distribución espacial)
-   - Serie temporal (actividad temporal)
-   - Espectro de potencia (distribución espectral)
-
-Estas visualizaciones se guardan como archivos PNG y permiten inspección manual de todas las componentes para verificar la evaluación automática.
+1. **Gráfico superpuesto**: primeros segmentos del primer canal
+      - Permite ver la forma de los segmentos y verificar que son consecutivos
+2. **Gráfico apilado**: todos los segmentos del primer canal
+      - Muestra la evolución temporal a lo largo de toda la señal
+      - Útil para detectar patrones o artefactos que se repiten
 "
 
-# ╔═╡ e9ca5fa3-21fb-42cb-8114-8538a69ebc60
+# ╔═╡ cec9cd67-27db-4736-85c5-2af2a0093364
+begin
+println("📈 VISUALIZACIÓN DE EJEMPLO")
+println("-" ^ 60)
+
+# Visualizar primeros 5 segmentos del primer canal como ejemplo
+n_segments_plot = min(5, n_segments)  # mostrar máximo 5 segmentos
+ch_example = 1                        # primer canal
+channel_name = channels[ch_example]
+
+# Crear vector de tiempo para el eje X (en segundos para un segmento)
+time_segment = collect(0:(segment_length_samples-1)) ./ fs
+end
+
+# ╔═╡ 7c3becba-7fc8-4eaf-86c6-2d92e08b04fa
+begin
+p_segments = plot(
+    xlabel = "Tiempo (s)",
+    ylabel = "Amplitud (µV)",
+    title = "Segmentos de ejemplo - Canal $channel_name",
+    legend = :outerright,
+    size = (1000, 400)
+)
+
+for seg_idx in 1:n_segments_plot
+    segment_data = eeg_segmented[ch_example, :, seg_idx]
+    plot!(p_segments, time_segment, segment_data, 
+          label = "Segmento $seg_idx", 
+          lw = 1.5, alpha = 0.7)
+end
+
+p_segments
+end
+
+# ╔═╡ 9567bffe-65b2-4073-ae85-ee339577f9be
+begin
+# Visualización de todos los segmentos apilados (primer canal)
+println("  → Visualización de todos los segmentos apilados (canal $channel_name)")
+sep = 50.0  # Separación vertical entre segmentos
+offsets_segments = [(n_segments - i) * sep for i in 1:n_segments]
+end
+
+# ╔═╡ a892d381-a5a7-4659-bb5b-19e65183522f
+begin
+p_stacked = plot(
+    xlabel = "Tiempo (s)",
+    ylabel = "",
+    title = "Todos los segmentos apilados - Canal $channel_name",
+    legend = false,
+    grid = false,
+    size = (1000, 600)
+)
+
+for seg_idx in 1:n_segments
+    segment_data = eeg_segmented[ch_example, :, seg_idx]
+    plot!(p_stacked, time_segment, segment_data .+ offsets_segments[seg_idx], 
+          lw = 1, alpha = 0.6)
+end
+
+# Añadir etiquetas en el eje Y
+yticks_positions = offsets_segments[1:max(1, div(n_segments, 10)):end]
+yticks_labels = ["Seg $(i*max(1, div(n_segments, 10)))" for i in 1:length(yticks_positions)]
+plot!(p_stacked, yticks = (yticks_positions, yticks_labels))
+
+p_stacked
+
+end
+
+# ╔═╡ 7f0a28b2-2cd9-4910-8312-dad488e40399
+md"
+## Guardar resultados
+
+Esta sección guarda todos los resultados del proceso de segmentación:
+   1. **Hipermatriz segmentada:** datos EEG organizados en segmentos
+   2. **Diccionario de información:** metadatos y parámetros de segmentación
+   3. **Estadísticas en CSV:** tabla con estadísticas por segmento
+"
+
+# ╔═╡ bd6dd4b5-ed90-4b30-9c0f-a04f7a8adcf7
+begin
+println("💾 GUARDANDO RESULTADOS")
+println("-" ^ 60)
+
+# Crear directorio de segmentación si no existe
+dir_segmentation = stage_dir(:segmentation)
+if !isdir(dir_segmentation)
+    mkpath(dir_segmentation)
+    println("  ✓ Directorio creado: $dir_segmentation")
+end
+
+# Guardar hipermatriz segmentada
+# Formato: (canales × muestras × segmentos)
+# Esta es la estructura principal que será usada en pasos posteriores
+path_eeg_segmented = joinpath(dir_segmentation, "eeg_segmented.bin")
+Serialization.serialize(path_eeg_segmented, eeg_segmented)
+println("  ✓ Hipermatriz segmentada guardada en: $(basename(path_eeg_segmented))")
+
+# Guardar información completa de segmentación
+# Incluye la hipermatriz, parámetros usados, y toda la información necesaria
+# para reproducir o analizar el proceso de segmentación
+dict_segmentation_info = Dict(
+    "eeg_segmented" => eeg_segmented,              # hipermatriz segmentada
+    "channels" => channels,                         # nombres de canales
+    "fs" => fs,                                     # frecuencia de muestreo
+    "segment_length_s" => segment_length_s,        # longitud en segundos
+    "segment_length_samples" => segment_length_samples,  # longitud en muestras
+    "segment_overlap_s" => segment_overlap_s,      # solapamiento en segundos
+    "segment_overlap_samples" => segment_overlap_samples,  # solapamiento en muestras
+    "segment_step_samples" => segment_step_samples,  # paso entre segmentos
+    "n_segments" => n_segments,                    # número de segmentos creados
+    "n_channels" => n_channels,                     # número de canales
+    "n_samples_total" => n_samples_total,           # muestras totales originales
+    "skip_bad_intervals" => skip_bad_intervals      # parámetro (no usado actualmente)
+)
+
+path_dict_segmentation = joinpath(dir_segmentation, "dict_segmentation_info.bin")
+Serialization.serialize(path_dict_segmentation, dict_segmentation_info)
+println("  ✓ Información de segmentación guardada en: $(basename(path_dict_segmentation))")
+
+# Guardar estadísticas en CSV
+path_stats_csv = joinpath(dir_segmentation, "segment_statistics.csv")
+CSV.write(path_stats_csv, segment_stats)
+println("  ✓ Estadísticas de segmentos guardadas en: $(basename(path_stats_csv))")
+println()
+end
+
+# ╔═╡ a877c6a1-25b2-43b3-9191-6da2522b65e9
+md"
+## Resumen segmentación
+"
+
+# ╔═╡ 56795636-501e-4928-a722-d515eedb4dd3
 begin
 println("=" ^ 60)
-println("  Generando resúmenes visuales de componentes ICA")
-println("=" ^ 60 * "\n")
-
-# Crear directorio de salida si no existe
-# Las figuras se guardan en results/figures/ICA_cleaning/
-dir_output = stage_dir(:ICA_cleaning; kind = :figures)
-isdir(dir_output) || mkpath(dir_output)
-
-# Obtener número de componentes ICA
-fs = 500.0  # frecuencia de muestreo (Hz)
-
-println("Generando resúmenes para $n_comp componentes ICA...")
-println("→ Directorio de salida: $dir_output")
+println("✨ SEGMENTACIÓN COMPLETADA")
+println("=" ^ 60)
+println()
+println("📋 RESUMEN:")
+println("  • Hipermatriz creada: $(size(eeg_segmented))")
+println("  • Formato: (canales × muestras × segmentos)")
+println("  • Canales: $n_channels")
+println("  • Muestras por segmento: $segment_length_samples ($(segment_length_s) s)")
+println("  • Número de segmentos: $n_segments")
+println("  • Solapamiento: $(segment_overlap_s) s")
+println("  • Resolución espectral esperada: ~$(round(fs/segment_length_samples, digits=3)) Hz")
+println()
+println("💾 Archivos guardados en: $dir_segmentation")
 println()
 end
 
-# ╔═╡ 95643a9e-59d2-4873-a8d6-ca3c07f8fb14
-begin
-# Generar visualización para cada componente
-for ic in 1:n_comp
-    println("  Generando resumen para componente $ic/$n_comp...")
-    
-    # Generar el resumen completo (topografía + time course + espectro)
-    fig = plot_ic_summary(ic; fs = fs)
-    
-    # Guardar la figura como PNG
-    # Formato de nombre: IC_001.png, IC_002.png, etc. (con padding de 3 dígitos)
-    filename = joinpath(dir_output, "IC_$(lpad(ic, 3, '0')).png")
-    savefig(fig, filename)
-    
-    println("    ✓ Guardado en: $filename")
-end
-
-println("\n✅ Todos los resúmenes de componentes ICA han sido generados y guardados.")
-println("   Directorio: $dir_output\n")
-end
-
-# ╔═╡ 4615eb2e-9602-425e-899a-2a590e71e1cc
+# ╔═╡ 720b30e4-bc60-48f5-99bb-d1c7fee7ae57
 md"
----
-## Scores para las componentes 
+# Corrección de Línea Base (1ª)
 
-Estas funciones combinan features normalizadas (z-scores) para crear scores que indican la probabilidad de que un componente sea un tipo específico de artefacto.
+Tras la segmentación en épocas de longitud fija, cada segmento puede conservar un desplazamiento DC (offset) o una deriva lenta que difiere entre segmentos. La corrección de baseline, antes de eliminar artefactos, elimina este desplazamiento restando, de cada segmento, la media de un intervalo de referencia predefinido (normalmente el inicio del segmento). El resultado es que la ventana de baseline tiene media aproximadamente cero en cada segmento, de modo que las estimaciones de amplitud y espectrales no se vean sesgadas por offsets específicos de cada segmento.
 
-Los scores se calculan como combinaciones lineales ponderadas de las features relevantes.
+En EEG en reposo sin estímulos discretos, este paso no corresponde a un baseline fisiológico de tipo pre-estímulo en el sentido de potenciales evocados; actúa como una normalización por segmento que elimina el nivel DC de la porción inicial de cada época y homogeneiza los segmentos para análisis posteriores de conectividad o espectro. Una alternativa sería restar la media de todo el segmento (demean de toda la época), lo cual también es válido para análisis puramente espectrales; sin embargo, aquí se mantiene el enfoque basado en un intervalo para conservar la consistencia con pipelines previos y permitir una ventana de baseline bien definida (por ejemplo, los primeros 100 ms) para informes y comprobaciones de calidad.
 
-- Score_1. Ratio espacial-temporal
-- Score_2. Potencias de banda PSD
-- Score_3. Blink Ratio
-- Score_4. EMG Ratio
-- Score_5. Line Ratio
-- Score_6. Kurtosis
-- Score_7. Fracción por muestras
-- Score_8. Correlación con EOG
+La implementación (`src/baseline.jl`) asume datos segmentados almacenados como un arreglo tridimensional
+
+```math
+\mathbf{E} \in \mathbb{R}^{C \times L \times K}
+```
+
+(canales × muestras por segmento × segmentos).
+
+La ventana de baseline se define como
+
+```math
+[t_{\mathrm{start}}, t_{\mathrm{end}}]
+```
+
+en segundos. A una frecuencia de muestreo
+
+```math
+F_s
+```
+
+esto corresponde a los índices de muestra
+
+```math
+n_{\mathrm{start}} \text{ -- } n_{\mathrm{end}}
+```
+
+Para cada canal
+
+```math
+c
+```
+
+y segmento
+
+```math
+k
+```
+
+la media del baseline es
+
+```math
+\mu_{c,k} = \frac{1}{N_{\mathrm{bl}}} \sum_{n=n_{\mathrm{start}}}^{n_{\mathrm{end}}} E_{c,n,k}
+```
+
+donde
+
+```math
+N_{\mathrm{bl}} = n_{\mathrm{end}} - n_{\mathrm{start}} + 1
+```
+
+El segmento corregido se define como
+
+```math
+E_{c,:,k}^{\mathrm{corr}} = E_{c,:,k} - \mu_{c,k}
+```
+
+De este modo, el intervalo de baseline tiene media cero y el resto del segmento se desplaza por la misma constante. La desviación estándar del segmento permanece inalterada.
+
+La configuración por defecto utiliza
+
+```math
+t_{\mathrm{start}} = 0
+```
+
+y
+
+```math
+t_{\mathrm{end}} = 0.1\,\text{s}
+```
+
+(primeros 100 ms). Con
+
+```math
+F_s = 500\,\text{Hz}
+```
+
+esto corresponde a las muestras 1–50.
+
+La ventana de 100 ms es lo suficientemente corta para evitar la contaminación por deriva lenta dentro del segmento y lo suficientemente larga para proporcionar una estimación estable de la media del segmento utilizada en la sustracción del baseline.
+
+El Algoritmo 2 resume el procedimiento; la Tabla 2 y el cuadro inferior formalizan la Fase 4 del pipeline.
 "
 
-# ╔═╡ 758bdd3b-9681-496a-b5ed-0844552b851b
+# ╔═╡ 381398ab-95f6-4fe2-81c6-a0478915c7c0
 md"
-**Funciones Auxiliares Scores**
+## Configuración baseline
+
+Se configura el **intervalo de baseline** que se usará para calcular la media. Este intervalo típicamente corresponde al inicio de cada segmento, antes de cualquier actividad de interés. La media de este intervalo se resta de todo el segmento para eliminar el **offset DC**.
+
+**Configuración**:
+   - **Intervalo**: 0.00 s - 0.10 s (primeros 100 ms de cada segmento)
+   - A 500 Hz: muestras 1-50 (primeras 50 muestras)
 "
 
-# ╔═╡ 1720bdbb-e56b-406f-a524-7ecef994c8f7
+# ╔═╡ 7a7fd84b-36f0-4a7f-aacf-338a6a523311
 begin
-"""
-    zscore(v::AbstractVector)
-
-Normalización z-score simple de un vector.
-Convierte los valores a desviaciones estándar desde la media.
-Si la desviación estándar es 0, devuelve un vector de ceros.
-
-Esta función se usa para normalizar features antes de calcular scores,
-permitiendo comparar features con diferentes escalas.
-"""
-function zscore(v::AbstractVector)
-    m = mean(v)
-    s = std(v)
-    if s == 0
-        return zeros(length(v))
-    else
-        return (v .- m) ./ s
-    end
-end
-end
-
-# ╔═╡ 319b5a80-5f4c-4973-ae94-75d09f735876
-begin
-"""
-    kurtosis_simple(x::AbstractVector)
-
-Calcula kurtosis poblacional sencilla (sin restar 3).
-La kurtosis mide la "cola" de la distribución: valores altos indican
-distribuciones con picos pronunciados o valores extremos.
-
-Se usa para identificar componentes con características extremas
-(como artefactos de parpadeo o saltos).
-"""
-function kurtosis_simple(x::AbstractVector)
-    m = mean(x)
-    xc = x .- m  # centrar
-    s2 = mean(xc.^2)  # varianza
-    if s2 == 0
-        return 0.0
-    end
-    m4 = mean(xc.^4)  # momento de cuarto orden
-    return m4 / (s2^2)  # kurtosis (sin restar 3, no necesario para comparaciones)
-end
-end
-
-# ╔═╡ 48d49f69-58de-4fff-89f8-7f71eeb5adc9
-begin
-"""
-    bandpower(x::AbstractVector, fs::Real, f_low::Real, f_high::Real)
-
-Calcula la potencia en una banda de frecuencias usando FFT (periodograma sencillo).
-
-Esta función calcula cuánta energía tiene una señal en un rango de frecuencias
-específico. Se usa para identificar componentes con características espectrales
-típicas de artefactos:
-  - Parpadeos: alta potencia en 0.5-4 Hz
-  - EMG: alta potencia en 30-80 Hz
-  - Línea eléctrica: alta potencia en 48-52 Hz
-
-Parámetros:
-  - x: señal temporal
-  - fs: frecuencia de muestreo
-  - f_low, f_high: límites de la banda de frecuencias (Hz)
-
-Devuelve la potencia total en la banda especificada.
-"""
-function bandpower(x::AbstractVector, fs::Real, f_low::Real, f_high::Real)
-    x = x .- mean(x)  # eliminar DC
-    N = length(x)
-
-    # FFT real -> solo frecuencias positivas (más eficiente)
-    X = rfft(x)
-    freqs = (0:length(X)-1) .* (fs / N)  # frecuencias correspondientes
-
-    # PSD simple (periodograma)
-    # No nos preocupa la constante exacta, solo comparaciones relativas
-    psd = abs.(X).^2 ./ (fs * N)
-
-    # Seleccionar frecuencias en la banda deseada
-    idx = (freqs .>= f_low) .& (freqs .<= f_high)
-    return sum(psd[idx])  # potencia total en la banda
-end
-end
-
-# ╔═╡ 58424b09-e5c9-431f-a971-1faa4a1d6104
-begin
-"""
-    compute_features(A, S, fs; frontal_idxs, temporal_idxs, eog = nothing)
-
-Calcula ratios espaciales y espectrales + estadísticos para todos los ICs.
-
-Esta función extrae características (features) de cada componente ICA que ayudan
-a identificar si es un artefacto o señal neuronal. Las features calculadas son:
-
-FEATURES ESPACIALES (basadas en la matriz A):
-  - frontal_ratio: ratio de potencia en canales frontales vs no frontales
-    (alto = componente frontal, típico de parpadeos)
-  - temporal_ratio: ratio de potencia en canales temporales vs no temporales
-    (alto = componente temporal, típico de EMG)
-
-FEATURES ESPECTRALES (basadas en la señal temporal S):
-  - blink_ratio: ratio potencia 0.5-4 Hz / 4-40 Hz (alto = parpadeo)
-  - emg_ratio: ratio potencia 30-80 Hz / 1-30 Hz (alto = actividad muscular)
-  - line_ratio: ratio potencia 48-52 Hz / total (alto = ruido de línea eléctrica)
-
-FEATURES ESTADÍSTICAS:
-  - kurtosis: medida de no-gaussianidad (alto = picos/valores extremos)
-  - extreme_frac: fracción de muestras fuera de ±5 desviaciones estándar
-    (alto = saltos/ruido bruto)
-
-FEATURES DE CORRELACIÓN:
-  - corrEOG: máxima correlación con canales EOG (si disponibles)
-    (alto = componente relacionado con movimiento ocular)
-
-Parámetros:
-  - A: matriz canales × ICs (pesos espaciales / mapas topográficos)
-  - S: matriz ICs × muestras (activaciones temporales)
-  - fs: frecuencia de muestreo
-  - frontal_idxs: índices de canales frontales
-  - temporal_idxs: índices de canales temporales
-  - eog: opcional, matriz canales_eog × muestras
-
-Devuelve un NamedTuple con todas las features calculadas.
-"""
-function compute_features(
-    A::AbstractMatrix,    # canales x ICs
-    S::AbstractMatrix,    # ICs x muestras
-    fs::Real;
-    frontal_idxs::Vector{Int},
-    temporal_idxs::Vector{Int},
-    eog::Union{Nothing, AbstractMatrix} = nothing  # eog: canales_eog x muestras
-)
-
-    n_chan, n_ic = size(A)
-    _, n_samp    = size(S)
-
-    # Inicializar vectores para almacenar features de cada IC
-    frontal_ratio  = zeros(n_ic)
-    temporal_ratio = zeros(n_ic)
-    blink_ratio    = zeros(n_ic)
-    emg_ratio      = zeros(n_ic)
-    line_ratio     = zeros(n_ic)
-    kurtosis_vec   = zeros(n_ic)
-    extreme_frac   = zeros(n_ic)
-    corrEOG        = zeros(n_ic)
-
-    # Calcular índices complementarios (canales no frontales, no temporales)
-    # Estos se usan como denominadores en los ratios espaciales
-    all_idxs = collect(1:n_chan)
-    nonfrontal_idxs  = setdiff(all_idxs, frontal_idxs)
-    nontemporal_idxs = setdiff(all_idxs, temporal_idxs)
-
-    # Calcular features para cada componente ICA
-    for k in 1:n_ic
-        map_k = A[:, k]  # mapa topográfico del IC k (columna k de A)
-        s_k   = S[k, :]  # señal temporal del IC k (fila k de S)
-
-        # --- RATIOS ESPACIALES ---
-        # Comparan la potencia del componente en regiones específicas vs el resto
-        # Componentes de parpadeo suelen tener alta potencia frontal
-        # Componentes de EMG suelen tener alta potencia temporal
-        num_f  = mean(abs.(map_k[frontal_idxs]))      # potencia promedio en frontales
-        den_f  = mean(abs.(map_k[nonfrontal_idxs])) + 1e-12  # potencia promedio en no frontales
-        frontal_ratio[k] = num_f / den_f
-
-        num_t  = mean(abs.(map_k[temporal_idxs]))     # potencia promedio en temporales
-        den_t  = mean(abs.(map_k[nontemporal_idxs])) + 1e-12  # potencia promedio en no temporales
-        temporal_ratio[k] = num_t / den_t
-
-        # --- POTENCIAS DE BANDA ESPECTRALES ---
-        # Calculan potencia en diferentes bandas de frecuencia
-        # Los artefactos tienen características espectrales distintivas
-        P_total = bandpower(s_k, fs, 0.5, 100)  # potencia total (0.5-100 Hz)
-        P_0_4   = bandpower(s_k, fs, 0.5, 4)    # banda delta/baja (parpadeos)
-        P_4_40  = bandpower(s_k, fs, 4, 40)      # banda típica neuronal
-        P_1_30  = bandpower(s_k, fs, 1, 30)      # banda amplia (referencia)
-        P_30_80 = bandpower(s_k, fs, 30, 80)    # banda alta (EMG)
-        P_48_52 = bandpower(s_k, fs, 48, 52)     # banda de línea eléctrica (50 Hz)
-
-        # Ratios espectrales: comparan potencia en bandas características
-        blink_ratio[k] = P_0_4   / (P_4_40  + 1e-12)  # alto = parpadeo
-        emg_ratio[k]   = P_30_80 / (P_1_30  + 1e-12)  # alto = EMG
-        line_ratio[k]  = P_48_52 / (P_total + 1e-12)  # alto = ruido de línea
-
-        # --- KURTOSIS Y MUESTRAS EXTREMAS ---
-        # Identifican componentes con distribuciones no gaussianas o valores extremos
-        # Típico de artefactos como saltos, parpadeos grandes, etc.
-        kurtosis_vec[k] = kurtosis_simple(s_k)  # kurtosis de la señal
-
-        # Fracción de muestras que están fuera de ±5 desviaciones estándar
-        # Valores altos indican saltos o ruido bruto
-        μ  = mean(s_k)
-        σ  = std(s_k)
-        thr = μ + 5σ   # umbral superior
-        thrn = μ - 5σ  # umbral inferior
-        if σ == 0
-            extreme_frac[k] = 0.0
-        else
-            n_ext = count(t -> (t > thr) || (t < thrn), s_k)  # contar extremos
-            extreme_frac[k] = n_ext / n_samp  # fracción de muestras extremas
-        end
-
-        # --- CORRELACIÓN CON EOG (SI HAY) ---
-        # Si hay canales EOG disponibles, calcula la correlación máxima
-        # Componentes de parpadeo/movimiento ocular tienen alta correlación con EOG
-        if eog !== nothing
-            # eog: canales_eog × muestras
-            # calcula máxima correlación absoluta con cualquier canal EOG
-            maxcorr = 0.0
-            for e in axes(eog, 1)
-                e_sig = eog[e, :]
-                if std(e_sig) > 0 && std(s_k) > 0
-                    c = cor(s_k, e_sig)  # correlación de Pearson
-                    maxcorr = max(maxcorr, abs(c))  # mantener la máxima (absoluta)
-                end
-            end
-            corrEOG[k] = maxcorr
-        else
-            corrEOG[k] = 0.0  # sin EOG, no hay correlación
-        end
-    end
-
-    return (
-        frontal_ratio  = frontal_ratio,
-        temporal_ratio = temporal_ratio,
-        blink_ratio    = blink_ratio,
-        emg_ratio      = emg_ratio,
-        line_ratio     = line_ratio,
-        kurtosis       = kurtosis_vec,
-        extreme_frac   = extreme_frac,
-        corrEOG        = corrEOG,
-    )
-end
-end
-
-# ╔═╡ 6c8a21b0-a2d8-4d78-90d5-0acf83909a84
-begin
-"""
-    ocular_score(frontal_z, blink_z, corrEOG_z; w1=0.4, w2=0.4, w3=0.2)
-
-Score para identificar componentes oculares (parpadeos, movimientos oculares).
-
-Combina tres features normalizadas:
-  - frontal_z: ratio espacial frontal (peso 0.4)
-  - blink_z: ratio espectral de parpadeo (peso 0.4)
-  - corrEOG_z: correlación con EOG (peso 0.2)
-
-Un score alto indica que el componente probablemente es un artefacto ocular.
-"""
-function ocular_score(frontal_z, blink_z, corrEOG_z;
-                      w1 = 0.4, w2 = 0.4, w3 = 0.2)
-    return w1 .* frontal_z .+ w2 .* blink_z .+ w3 .* corrEOG_z
-end
-
-end
-
-# ╔═╡ 9bd532f8-dd85-460e-9d8b-c43f7251c6e3
-"""
-    muscle_score(emg_z, temporal_z, kurtosis_z; v1=0.5, v2=0.3, v3=0.2)
-
-Score para identificar componentes de actividad muscular (EMG).
-
-Combina tres features normalizadas:
-  - emg_z: ratio espectral EMG (peso 0.5) - más importante
-  - temporal_z: ratio espacial temporal (peso 0.3)
-  - kurtosis_z: kurtosis (peso 0.2)
-
-Un score alto indica que el componente probablemente es actividad muscular.
-"""
-function muscle_score(emg_z, temporal_z, kurtosis_z;
-                      v1 = 0.5, v2 = 0.3, v3 = 0.2)
-    return v1 .* emg_z .+ v2 .* temporal_z .+ v3 .* kurtosis_z
-end
-
-# ╔═╡ 6e0aef9c-f860-45c7-abf7-28a7e3691308
-"""
-    line_score(line_z)
-
-Score para identificar componentes de ruido de línea eléctrica (50/60 Hz).
-
-Usa directamente el z-score del line_ratio (peso 1.0).
-Un score alto indica que el componente contiene principalmente ruido de línea.
-"""
-function line_score(line_z)
-    return line_z      # aquí el peso es 1 directamente
-end
-
-# ╔═╡ 452b7200-4636-42c8-91d1-660ff4497ae7
-"""
-    jump_score(kurtosis_z, extreme_z; u1=0.5, u2=0.5)
-
-Score para identificar componentes con saltos o ruido bruto.
-
-Combina dos features normalizadas con pesos iguales:
-  - kurtosis_z: kurtosis (peso 0.5)
-  - extreme_z: fracción de muestras extremas (peso 0.5)
-
-Un score alto indica que el componente tiene valores extremos o saltos.
-"""
-function jump_score(kurtosis_z, extreme_z;
-                    u1 = 0.5, u2 = 0.5)
-    return u1 .* kurtosis_z .+ u2 .* extreme_z
-end
-
-# ╔═╡ 0f66f445-fe02-4c27-b7a1-2dd5a15ac405
-"""
-    evaluate_ics(A, S, fs; frontal_idxs, temporal_idxs, eog = nothing, artifact_thresh = 1.5)
-
-Evalúa todos los componentes ICA y los etiqueta como artefactos o señales neuronales.
-
-Esta función es el núcleo del sistema de evaluación automática. Realiza los siguientes pasos:
-
-1. Calcula features crudos para cada componente (ratios espaciales, espectrales, estadísticos)
-2. Normaliza las features usando z-score (para comparar en la misma escala)
-3. Calcula scores por tipo de artefacto (ocular, muscular, línea, saltos)
-4. Determina el score global de artefacto (máximo de los scores individuales)
-5. Etiqueta cada componente según el tipo de artefacto más probable
-6. Calcula un neural_score (negativo del artifact_score) para identificar componentes neuronales
-
-PROCESO DE ETIQUETADO:
-  - Si artifact_score > artifact_thresh: etiqueta como tipo de artefacto correspondiente
-  - Si artifact_score ≤ artifact_thresh: etiqueta como "neuronal?" (probable señal neuronal)
-
-Parámetros:
-  - A: matriz canales × ICs (mezcla / pesos espaciales)
-  - S: matriz ICs × muestras (activaciones temporales)
-  - fs: frecuencia de muestreo
-  - frontal_idxs, temporal_idxs: índices de canales frontales / temporales
-  - eog: opcional, matriz canales_eog × muestras
-  - artifact_thresh: umbral de score global para etiquetar como artefacto (default: 1.5)
-
-Devuelve un DataFrame con features, scores y etiqueta final por IC.
-"""
-function evaluate_ics(
-    A::AbstractMatrix,
-    S::AbstractMatrix,
-    fs::Real;
-    frontal_idxs::Vector{Int},
-    temporal_idxs::Vector{Int},
-    eog::Union{Nothing, AbstractMatrix} = nothing,
-    artifact_thresh::Real = 1.5
-)
-
-    n_chan, n_ic = size(A)
-
-    # 1) FEATURES crudos
-    # Calcula todas las características (ratios, kurtosis, etc.) para cada IC
-    feats = compute_features(A, S, fs;
-                             frontal_idxs = frontal_idxs,
-                             temporal_idxs = temporal_idxs,
-                             eog = eog)
-
-    # 2) Normalización (z-score) de cada feature
-    # Esto permite comparar features con diferentes escalas y unidades
-    # Un z-score de 1.5 significa que el valor está 1.5 desviaciones estándar por encima de la media
-    frontal_z   = zscore(feats.frontal_ratio)
-    temporal_z  = zscore(feats.temporal_ratio)
-    blink_z     = zscore(feats.blink_ratio)
-    emg_z       = zscore(feats.emg_ratio)
-    line_z      = zscore(feats.line_ratio)
-    kurtosis_z  = zscore(feats.kurtosis)
-    extreme_z   = zscore(feats.extreme_frac)
-    corrEOG_z   = zscore(feats.corrEOG)
-
-    # 3) Scores por tipo de artefacto
-    # Cada score combina features relevantes para identificar un tipo específico
-    ocular   = ocular_score(frontal_z, blink_z, corrEOG_z)  # score de parpadeo
-    muscle   = muscle_score(emg_z, temporal_z, kurtosis_z)  # score de EMG
-    line     = line_score(line_z)                            # score de línea eléctrica
-    jump     = jump_score(kurtosis_z, extreme_z)             # score de saltos
-
-    # 4) Score global de artefacto y etiqueta
-    # El score global es el máximo de los scores individuales
-    # Esto identifica el tipo de artefacto más probable
-    artifact_global = similar(ocular)
-    label           = Vector{String}(undef, n_ic)
-
-    for k in 1:n_ic
-        scores_k = (ocular[k], muscle[k], line[k], jump[k])
-        maxscore = maximum(scores_k)  # máximo de los 4 scores
-        artifact_global[k] = maxscore
-
-        # Etiquetar según qué score fue el máximo
-        if maxscore > artifact_thresh
-            # Decide etiqueta según qué score fue mayor
-            if maxscore == ocular[k]
-                label[k] = "parpadeo"
-            elseif maxscore == muscle[k]
-                label[k] = "músculo"
-            elseif maxscore == line[k]
-                label[k] = "línea"
-            else
-                label[k] = "salto"
-            end
-        else
-            # Score bajo = probablemente señal neuronal
-            label[k] = "neuronal?"
-        end
-    end
-
-    # 5) neural_score (simple: negativo del global)
-    # Un score alto de artefacto → score bajo (negativo) de neural
-    # Un score bajo de artefacto → score alto (menos negativo) de neural
-    neural_score = -artifact_global
-
-    # 6) Construimos DataFrame resumen
-    # Incluye todas las features, scores y la etiqueta final
-    df = DataFrame(
-        IC             = collect(1:n_ic),
-        frontal_ratio  = feats.frontal_ratio,
-        temporal_ratio = feats.temporal_ratio,
-        blink_ratio    = feats.blink_ratio,
-        emg_ratio      = feats.emg_ratio,
-        line_ratio     = feats.line_ratio,
-        kurtosis       = feats.kurtosis,
-        extreme_frac   = feats.extreme_frac,
-        corrEOG        = feats.corrEOG,
-        ocular_score   = ocular,
-        muscle_score   = muscle,
-        line_score     = line,
-        jump_score     = jump,
-        artifact_score = artifact_global,
-        neural_score   = neural_score,
-        label          = label
-    )
-
-    return df
-end
-
-# ╔═╡ 53b80a6f-b5f4-434b-bec6-6ab699b4268c
-md"
-## Índices canales frontales y temporales
-
-Esta sección identifica automáticamente los canales frontales y temporales basándose en la nomenclatura estándar 10-20. Estos canales se usan para calcular los ratios espaciales que ayudan a identificar tipos de artefactos:
-
-   - Canales frontales: típicamente afectados por parpadeos y movimientos oculares
-   - Canales temporales: típicamente afectados por actividad muscular (EMG)
-
-La identificación se hace por nombre de canal usando prefijos estándar. 
-"
-
-# ╔═╡ 81c89737-2b24-48ab-8c9e-4fea3ea5fa78
-md"
-Identificar **canales frontales (F, FC, FT, FP)**. Estos canales están en la parte frontal del cuero cabelludo
-"
-
-# ╔═╡ aba0ac49-d995-45fb-a650-dcba81b8379f
-begin
-frontal_idxs = Int[]
-for (i, ch) in enumerate(channels)
-    ch_upper = uppercase(ch)  # convertir a mayúsculas para comparación
-    # Buscar canales que empiecen con F, FC, FT o FP
-    if startswith(ch_upper, "F") || startswith(ch_upper, "FC") || 
-       startswith(ch_upper, "FT") || startswith(ch_upper, "FP")
-        push!(frontal_idxs, i)
-    end
-end
-println("📍 Canales frontales detectados: ", [channels[i] for i in frontal_idxs])
-println()
-end
-
-# ╔═╡ bf4f70fc-c2b3-4932-9320-20d88cde92a6
-md"
-Identificar **canales temporales (T, TP)**. Estos canales están en las regiones temporales (lados de la cabeza)
-"
-
-# ╔═╡ d20e61ec-8992-4629-81f2-67390dad967e
-begin
-temporal_idxs = Int[]
-for (i, ch) in enumerate(channels)
-    ch_upper = uppercase(ch)
-    # Buscar canales que empiecen con T o TP
-    if startswith(ch_upper, "T") || startswith(ch_upper, "TP")
-        push!(temporal_idxs, i)
-    end
-end
-println("📍 Canales temporales detectados: ", [channels[i] for i in temporal_idxs])
-println()
-end
-
-# ╔═╡ bfad913c-0ef8-46fc-a168-20d0f3eff740
-md"
-**Canales EOG** (no disponibles en estos datos). Si hubiera canales EOG, se usarían para calcular correlaciones que ayudarían a identificar componentes oculares
-"
-
-# ╔═╡ 2018768c-862a-44be-8f4e-28fa1ca54c76
-eog = nothing
-
-# ╔═╡ c500f42c-34ad-4256-8b5e-d04990f41fd7
-md"
-Evaluar todos los ICs usando el sistema automático. Esta función calcula features, scores y etiquetas para todas las componentes
-"
-
-# ╔═╡ 3ee89855-3d96-4107-bf43-c57c4ad96663
-begin
-df_all = evaluate_ics(A, S, fs;
-                      frontal_idxs = frontal_idxs,
-                      temporal_idxs = temporal_idxs,
-                      eog = eog)
-display(df_all)
-end
-
-# ╔═╡ 904430e1-10d6-40b0-8a08-a2325bc11ee1
-md"Guardar resultados de evaluación en tabla
-"
-
-# ╔═╡ 0dc439c9-05ba-48ed-8150-3b50ef9dfcc9
-begin
-dir_tables = stage_dir(:ICA_cleaning; kind = :tables)
-isdir(dir_tables) || mkpath(dir_tables)
-path_table = joinpath(dir_tables, "ICA_components_evaluation.csv")
-CSV.write(path_table, df_all)
-println("\n💾 Tabla de evaluación de componentes ICA guardada en: $path_table\n")
-end
-
-# ╔═╡ c5e3850c-c33d-45da-847b-7727630392d9
-md"
----
-# Selección componentes a eliminar
-
-Esta sección identifica automáticamente los componentes artefactuales basándose en los scores calculados y luego reconstruye los datos EEG eliminando esos componentes.
-
-PROCESO:
-   1. Identificar componentes con artifact_score > umbral
-   2. Agrupar por tipo de artefacto (parpadeo, músculo, línea, salto)
-   3. Anular las componentes artefactuales en S_clean (poner a cero)
-   4. Reconstruir datos limpios: X_clean = A * S_clean
-   5. Guardar datos limpios y metadatos
-"
-
-# ╔═╡ c8d481a7-6ffd-4ae1-b5a4-69fd5cac68f0
-begin
-println("====================================")
-println("  Selección de Componentes Artefactuales")
-println("====================================\n")
-artifact_thresh = 1.5
-bad_ics = Int[]  # Lista de componentes a eliminar
-artifacts_by_type = Dict{String, Vector{Int}}(
-    "parpadeo" => Int[],
-    "músculo" => Int[],
-    "línea" => Int[],
-    "salto" => Int[],
-    "otros" => Int[]
-)
-end
-
-# ╔═╡ 50c0d9b2-71f1-401a-a471-2c81f93b9b31
-begin
-# Recorrer el DataFrame de evaluación y seleccionar componentes artefactuales
-if hasproperty(df_all, :artifact_score) && hasproperty(df_all, :label)
-    for (idx, row) in enumerate(eachrow(df_all))
-        # Si el score de artefacto supera el umbral y no está etiquetado como neuronal
-        if row.artifact_score > artifact_thresh && row.label != "neuronal?"
-            push!(bad_ics, row.IC)  # Agregar a la lista de componentes a eliminar
-            label = row.label
-            
-            # Agrupar por tipo de artefacto para estadísticas
-            if label == "parpadeo"
-                push!(artifacts_by_type["parpadeo"], row.IC)
-            elseif label == "músculo"
-                push!(artifacts_by_type["músculo"], row.IC)
-            elseif label == "línea"
-                push!(artifacts_by_type["línea"], row.IC)
-            elseif label == "salto"
-                push!(artifacts_by_type["salto"], row.IC)
-            else
-                push!(artifacts_by_type["otros"], row.IC)
-            end
-        end
-    end
-end
-end
-
-# ╔═╡ 32ee530f-e66a-44fb-ba43-96f59dde3616
-begin
-# Mostrar resumen de componentes artefactuales
-println("📊 Resumen de componentes artefactuales (umbral: $artifact_thresh):")
+baseline_start_s = 0.00    # Inicio del intervalo de baseline (s)
+                            # Comienza al inicio del segmento (t=0)
+baseline_end_s = 0.10       # Fin del intervalo de baseline (s) = 100 ms
+                            # Primeros 100 ms del segmento
+
+# Convertir tiempos a índices de muestras (1-indexed en Julia)
+baseline_start_sample = Int(round(baseline_start_s * fs)) + 1  # Muestra 1 (índice base 1)
+baseline_end_sample = Int(round(baseline_end_s * fs))          # Muestra 50 (a 500 Hz)
+
+println("⚙️  CONFIGURACIÓN DE BASELINE")
 println("-" ^ 60)
-total_artifacts = length(bad_ics)
-println("  Total de componentes artefactuales: $total_artifacts")
-if total_artifacts > 0
-    for (tipo, ics) in artifacts_by_type
-        if !isempty(ics)
-            println("  • $tipo: IC$(join(ics, ", IC")) ($(length(ics)) componente$(length(ics) > 1 ? "s" : ""))")
-        end
-    end
-    println("\n  ICs a eliminar: $(join(bad_ics, ", "))")
-else
-    println("  ✅ No se detectaron componentes artefactuales con el umbral actual.")
-end
+println("  Intervalo de baseline: $(baseline_start_s) s - $(baseline_end_s) s")
+println("  Muestras de baseline: $(baseline_start_sample) - $(baseline_end_sample)")
+println("  Número de muestras en baseline: $(baseline_end_sample - baseline_start_sample + 1)")
+println()
 end
 
-# ╔═╡ 308a57b0-5e60-41b9-8ed6-a2545ef434f8
+# ╔═╡ 584aed06-bed9-4158-8b2d-11f8fe72b693
 md"
-# Reconstrucción EEG limpio
+## Aplicar corrección baseline
+
+Esta sección aplica la **corrección de baseline** a cada segmento de cada canal.
+
+**Proceso:**
+
+Para cada canal y cada segmento:
+     1. Extrae el segmento completo
+     2. Identifica el intervalo de baseline (primeros 100 ms)
+     3. Calcula la media de ese intervalo
+     4. Resta la media de todo el segmento
+
+**Resultado:**
+
+Después de la corrección, el intervalo de baseline tiene media ≈ 0 en cada segmento. Esto elimina el **offset DC** y normaliza la señal, facilitando análisis posteriores.
 "
 
-# ╔═╡ dfc805d8-b213-4aa8-b4ce-87c5a7df53ca
+# ╔═╡ aa01d3bf-16c6-4436-9eb6-55f737e4fdba
 begin
-println("\n" * "=" ^ 60)
-println("  Reconstrucción de EEG Limpio")
-println("=" ^ 60 * "\n")
-
-# Crear copia de S y anular las componentes artefactuales
-# Al poner S_clean[ic, :] = 0, eliminamos la contribución de ese componente
-S_clean = copy(S)
-for ic in bad_ics
-    @assert 1 ≤ ic ≤ size(S, 1) "IC $ic está fuera del rango [1, $(size(S, 1))]"
-    S_clean[ic, :] .= 0.0  # Anular completamente la componente artefactual
-end
+println("🔄 APLICANDO CORRECCIÓN DE BASELINE")
+println("-" ^ 60)
 	
-# Reconstrucción: X_clean = A * S_clean
-# La matriz A contiene los mapas topográficos (cómo se mezclan las componentes)
-# Al multiplicar A por S_clean, reconstruimos los datos EEG sin los artefactos
-# Solo las componentes "buenas" (no anuladas) contribuyen a la reconstrucción
-X_clean = A * S_clean
+# Crear copia de los datos segmentados
+# Se trabaja sobre una copia para preservar los datos originales
+eeg_baseline_corrected = copy(eeg_segmented)
 
-println("✓ Componentes originales: $(size(S, 1))")
-println("✓ Componentes eliminados: $(length(bad_ics))")
-println("✓ Componentes restantes: $(size(S, 1) - length(bad_ics))")
-println("✓ Señal reconstruida (limpia): $(size(X_clean, 1)) canales × $(size(X_clean, 2)) muestras\n")
-end
-
-# ╔═╡ a2687d65-dd55-4ef1-a4ad-c6857c4a736c
-begin
-# Guardar en formato de diccionario por canal
-# Convierte la matriz X_clean de vuelta al formato original (diccionario por canal)
-# Esto facilita el uso posterior de los datos limpios
-dict_EEG_clean = Dict{String, Vector{Float64}}()
-for (i, ch) in enumerate(channels)
-    dict_EEG_clean[ch] = vec(X_clean[i, :])  # Cada fila de X_clean es un canal
-end
-
-path_dict_clean = joinpath(dir_ica, "dict_EEG_ICA_clean.bin")
-Serialization.serialize(path_dict_clean, dict_EEG_clean)
-println("💾 EEG limpio guardado en: $path_dict_clean")
-end
-
-# ╔═╡ 3a4ad856-e5ae-431e-a010-f69f7b199f6c
-md"
-Guardar versión completa con info ICA + cleaning
-"
-
-# ╔═╡ 4ce98dc3-4644-4a70-8762-f94df502c485
-begin
-dict_ICA_full = Dict(
-    "S"        => S,
-    "S_clean"  => S_clean,
-    "W_total"  => W_total,
-    "A"        => A,
-    "channels" => channels,
-    "bad_ics"  => bad_ics,
-    "artifacts_by_type" => artifacts_by_type,
-    "artifact_thresh" => artifact_thresh,
-    "df_evaluation" => df_all,  # Guardar también el DataFrame de evaluación
-    "max_iter" => max_iter,
-    "tol"      => tol,
-)
-
-path_dict_ica_full = joinpath(dir_ica, "dict_EEG_ICA_full.bin")
-Serialization.serialize(path_dict_ica_full, dict_ICA_full)
-
-println("💾 Info completa con bad_ics guardada en: $path_dict_ica_full\n")
-println("✨ ICA cleaning finalizado correctamente.")
-end
-
-# ╔═╡ 9e09d533-942b-4a1e-a741-51d4eb82ae63
-md"
-# Comparativa (antes/después ICA)
-
-Esta sección prepara los datos para comparar visualmente el EEG antes y después
-de la limpieza ICA. Se cargan los datos originales (filtrados) y los datos limpios, y se convierten a formato de matriz para facilitar la visualización.
-"
-
-# ╔═╡ fd41bc1b-fea1-4bfd-bacd-3d953fda896a
-begin
-# Cargar datos después del ICA (limpio)
-# Estos son los datos después de eliminar componentes artefactuales
-dict_EEG_ICA_clean = Serialization.deserialize(path_dict_clean)
-end
-
-# ╔═╡ 04b9b52c-d9e6-4232-996a-bcf5f65cd2af
-begin
-# Crear matrices para comparación
-# Cada fila es un canal, cada columna es una muestra temporal
-eeg_orig = zeros(Float64, n_channels, n_samples)   # Antes del ICA (Lowpass)
-eeg_clean = zeros(Float64, n_channels, n_samples)  # Después del ICA (limpio)
-end
-
-# ╔═╡ e8b98bb9-8bb1-4793-944d-384b4153cb6b
-md" 
-Rellenar matrices con datos de los diccionarios. Se mantiene el mismo orden de canales para comparación directa
-"
-
-# ╔═╡ f716dd11-c0a7-4a9a-8113-5d449255fad1
-begin
-for (i, ch) in enumerate(channels)
-    if haskey(dict_EEG_Lowpass, ch)
-        eeg_orig[i, :] = dict_EEG_Lowpass[ch]
-    else
-        println("⚠ Canal $ch no encontrado en dict_EEG_Lowpass")
+# Aplicar corrección de baseline a cada segmento
+# Se procesa cada canal y cada segmento independientemente
+for ch_idx in 1:n_channels
+    for seg_idx in 1:n_segments
+        # Obtener el segmento completo (todas las muestras del segmento)
+        segment = eeg_baseline_corrected[ch_idx, :, seg_idx]
+        
+        # Calcular la media del intervalo de baseline
+        # Este es el valor que se restará de todo el segmento
+        baseline_interval = segment[baseline_start_sample:baseline_end_sample]
+        baseline_mean = mean(baseline_interval)
+        
+        # Restar la media del baseline de todo el segmento
+        # Esto hace que el intervalo de baseline tenga media ≈ 0
+        # y elimina el offset DC del segmento completo
+        eeg_baseline_corrected[ch_idx, :, seg_idx] = segment .- baseline_mean
     end
     
-    if haskey(dict_EEG_ICA_clean, ch)
-        eeg_clean[i, :] = dict_EEG_ICA_clean[ch]
-    else
-        println("⚠ Canal $ch no encontrado en dict_EEG_ICA_clean")
+    # Mostrar progreso cada 10 canales o al final
+    if ch_idx % 10 == 0 || ch_idx == n_channels
+        println("  ✓ Canal $ch_idx/$n_channels procesado: $(channels[ch_idx])")
     end
 end
-println("✓ Datos antes del ICA (Lowpass): $(size(eeg_orig, 1)) canales × $(size(eeg_orig, 2)) muestras")
-println("✓ Datos después del ICA (limpio): $(size(eeg_clean, 1)) canales × $(size(eeg_clean, 2)) muestras\n")
+
+println()
+println("✔ Corrección de baseline completada")
+println("  → Dimensiones de la hipermatriz corregida $(size(eeg_baseline_corrected))")
+println()
 end
 
-# ╔═╡ bbe9e255-f695-4888-9163-ce8ae6726865
+# ╔═╡ 0be498cd-14f4-45d1-8028-40a793716b0f
 md"
-## Funciones auxiliares
+## Verificación y estadísticas
+
+Esta sección calcula estadísticas antes y después de la corrección para verificar que la corrección se aplicó correctamente. La verificación principal es que la media del intervalo de baseline después de la corrección debe ser ≈ 0.
+
+**Estadísticas calculadas:**
+   - **Media global del segmento**: antes y después
+   - **Desviación estándar**: para verificar que no cambió (solo se resta una constante)
+   - **Media del intervalo de baseline**: debe ser ≈ 0 después de la corrección
 "
 
-# ╔═╡ 8d50e6a0-0a2c-45bf-bfa8-88733e52ebaf
+# ╔═╡ d9e86f10-3244-476f-aca1-2c26fc5b592a
 begin
-# Alias para compute_psd usando la función existente
-compute_psd(signal::AbstractVector, fs::Real) = calculate_PSD_signal(signal, fs)
+println("📊 ESTADÍSTICAS DE CORRECCIÓN DE BASELINE")
+println("-" ^ 80)
+
+# Calcular estadísticas antes y después de la corrección
+# Se calculan sobre todos los canales de cada segmento
+stats_before = DataFrame(
+    Segmento = 1:n_segments,
+    Media_µV = [mean(eeg_segmented[:, :, seg]) for seg in 1:n_segments],  # media global antes
+    Std_µV = [std(vec(eeg_segmented[:, :, seg])) for seg in 1:n_segments],  # desviación estándar antes
+    Media_Baseline_µV = [mean(eeg_segmented[:, baseline_start_sample:baseline_end_sample, seg]) for seg in 1:n_segments]  # media del baseline antes
+)
+
+stats_after = DataFrame(
+    Segmento = 1:n_segments,
+    Media_µV = [mean(eeg_baseline_corrected[:, :, seg]) for seg in 1:n_segments],  # media global después
+    Std_µV = [std(vec(eeg_baseline_corrected[:, :, seg])) for seg in 1:n_segments],  # desviación estándar después (debe ser igual)
+    Media_Baseline_µV = [mean(eeg_baseline_corrected[:, baseline_start_sample:baseline_end_sample, seg]) for seg in 1:n_segments]  # media del baseline después (debe ser ≈ 0)
+)
+
+println("  → Estadísticas ANTES de la corrección (primeros 5 segmentos):")
+display(first(stats_before, 5))
+println()
+
+println("  → Estadísticas DESPUÉS de la corrección (primeros 5 segmentos):")
+display(first(stats_after, 5))
+println()
+
+println("  → Verificación:")
+println("    Media del baseline ANTES: $(round(mean(stats_before.Media_Baseline_µV), digits=6)) µV")
+println("    Media del baseline DESPUÉS: $(round(mean(stats_after.Media_Baseline_µV), digits=6)) µV")
+println("    Media global ANTES: $(round(mean(stats_before.Media_µV), digits=6)) µV")
+println("    Media global DESPUÉS: $(round(mean(stats_after.Media_µV), digits=6)) µV")
+println()
 end
 
-# ╔═╡ a75dbfaf-da36-497b-926a-990872f74364
+# ╔═╡ bc39f4d8-0192-41c4-885a-d09f65de298a
+md"
+## Visualización antes vs después
+
+Esta sección genera visualizaciones para inspeccionar el efecto de la corrección:
+   - Gráfico comparativo: muestra segmentos antes y después superpuestos
+   - Marca el intervalo de baseline para visualizar qué se corrigió
+   - Permite verificar visualmente que la corrección funcionó correctamente
+"
+
+# ╔═╡ bc400aa6-b180-4b02-8abc-60da09acb937
 begin
-# Función para calcular kurtosis de un canal
-kurtosis_channel(signal::AbstractVector) = kurtosis(signal)
+p_comparison = plot(
+    xlabel = "Tiempo (s)",
+    ylabel = "Amplitud (µV)",
+    title = "Corrección de Baseline - Canal $channel_name",
+    legend = :outerright,
+    size = (1200, 500)
+)
+
+for seg_idx in 1:n_segments_plot
+    segment_before = eeg_segmented[ch_example, :, seg_idx]
+    segment_after = eeg_baseline_corrected[ch_example, :, seg_idx]
+    
+    plot!(p_comparison, time_segment, segment_before, 
+          label = "Antes - Seg $seg_idx", 
+          lw = 1.5, alpha = 0.6, linestyle = :solid)
+    plot!(p_comparison, time_segment, segment_after, 
+          label = "Después - Seg $seg_idx", 
+          lw = 1.5, alpha = 0.8, linestyle = :dash)
+    
+    # Marcar el intervalo de baseline
+    baseline_time = collect((baseline_start_sample-1):(baseline_end_sample-1)) ./ fs
+    baseline_vals = segment_before[baseline_start_sample:baseline_end_sample]
+    plot!(p_comparison, baseline_time, baseline_vals, 
+          label = nothing, 
+          lw = 3, alpha = 0.3, color = :red, linestyle = :dot)
 end
 
-# ╔═╡ beec7fc7-1620-43c6-afb6-3fd7c098250a
+# Añadir línea vertical para marcar el fin del intervalo de baseline
+vline!(p_comparison, [baseline_end_s], 
+       label = "Fin baseline ($(baseline_end_s*1000) ms)", 
+       linestyle = :dashdot, color = :red, alpha = 0.5)
+
+p_comparison
+end
+
+# ╔═╡ 76b687c1-cfc9-4206-a9bd-3859932e9c09
+md"
+## Guardar resultados
+
+Esta sección guarda todos los resultados del proceso de corrección de baseline:
+
+   1. **Hipermatriz corregida:** datos **EEG** con baseline corregido
+   2. **Diccionario de información:** metadatos y parámetros de corrección
+   3. **Estadísticas en CSV:** tabla comparativa antes/después
+"
+
+# ╔═╡ 47ce252b-c3db-4f75-85c1-0fda4b34da80
 begin
-"""
-plot_eeg_segment(eeg_orig, eeg_clean, fs; channels=[1], t_start=0.0, t_len=5.0, chan_labels=nothing)
+println("💾 GUARDANDO RESULTADOS")
+println("-" ^ 80)
 
-Visualiza segmentos temporales de EEG comparando datos originales vs limpios.
+# Crear directorio de baseline si no existe
+dir_baseline = stage_dir(:baseline)
+if !isdir(dir_baseline)
+    mkpath(dir_baseline)
+    println("  ✓ Directorio creado: $dir_baseline")
+end
 
-Esta función permite inspeccionar visualmente la efectividad de la limpieza ICA
-mostrando superpuestas las señales antes y después del procesamiento. Es útil para
-verificar que los artefactos se han eliminado correctamente sin afectar la señal neuronal.
+# Guardar hipermatriz con corrección de baseline
+# Formato: (canales × muestras × segmentos)
+# Esta es la primera corrección de baseline, por eso se guarda como "1st_baseline_correction"
+path_eeg_baseline = joinpath(dir_baseline, "eeg_1st_baseline_correction.bin")
+Serialization.serialize(path_eeg_baseline, eeg_baseline_corrected)
+println("  ✓ Hipermatriz con corrección de baseline guardada en: $(basename(path_eeg_baseline))")
 
-Parámetros:
-  - eeg_orig, eeg_clean: matrices (canales × muestras) - datos antes y después
-  - fs: frecuencia de muestreo
-  - channels: índices de canales a mostrar (puede ser un vector)
-  - t_start: inicio del segmento en segundos
-  - t_len: duración de la ventana en segundos
-  - chan_labels: opcional, nombres de canales para etiquetar los gráficos
+# Guardar información completa de corrección de baseline
+# Incluye tanto los datos corregidos como los originales, parámetros usados,
+# y toda la información necesaria para reproducir o analizar el proceso
+dict_baseline_info = Dict(
+    "eeg_baseline_corrected" => eeg_baseline_corrected,      # datos corregidos
+    "eeg_segmented_original" => eeg_segmented,               # datos originales (para comparación)
+    "channels" => channels,                                   # nombres de canales
+    "fs" => fs,                                               # frecuencia de muestreo
+    "segment_length_samples" => segment_length_samples,      # longitud de cada segmento
+    "n_segments" => n_segments,                               # número de segmentos
+    "n_channels" => n_channels,                               # número de canales
+    "baseline_start_s" => baseline_start_s,                  # inicio del baseline (s)
+    "baseline_end_s" => baseline_end_s,                      # fin del baseline (s)
+    "baseline_start_sample" => baseline_start_sample,        # inicio del baseline (muestras)
+    "baseline_end_sample" => baseline_end_sample,             # fin del baseline (muestras)
+    "baseline_type" => "segment-based",                      # tipo de baseline (por segmento)
+    "correction_method" => "subtract_baseline_mean"         # método usado (resta de media)
+)
 
-Cada canal se muestra en un subplot separado con ambas señales superpuestas.
-"""
-function plot_eeg_segment(eeg_orig::AbstractMatrix,
-                          eeg_clean::AbstractMatrix,
-                          fs::Real;
-                          channels = [1],
-                          t_start = 0.0,
-                          t_len = 5.0,
-                          chan_labels = nothing)
+path_dict_baseline = joinpath(dir_baseline, "dict_1st_baseline_correction.bin")
+Serialization.serialize(path_dict_baseline, dict_baseline_info)
+println("  ✓ Información de corrección de baseline guardada en: $(basename(path_dict_baseline))")
 
-    n_chan, n_samp = size(eeg_orig)
-    @assert size(eeg_clean) == size(eeg_orig) "Dimensiones antes/después deben coincidir"
+# Guardar estadísticas en CSV
+stats_comparison = DataFrame(
+    Segmento = 1:n_segments,
+    Media_Antes_µV = stats_before.Media_µV,
+    Media_Despues_µV = stats_after.Media_µV,
+    Std_Antes_µV = stats_before.Std_µV,
+    Std_Despues_µV = stats_after.Std_µV,
+    Media_Baseline_Antes_µV = stats_before.Media_Baseline_µV,
+    Media_Baseline_Despues_µV = stats_after.Media_Baseline_µV,
+    Diferencia_Media_µV = stats_after.Media_µV .- stats_before.Media_µV
+)
 
-    # índices de muestra
-    i_start = max(1, Int(floor(t_start * fs)) + 1)
-    i_end   = min(n_samp, i_start + Int(floor(t_len * fs)) - 1)
-    t = (i_start:i_end) ./ fs
+CSV.write(path_stats_csv, stats_comparison)
+println("  ✓ Estadísticas de corrección guardadas en: $(basename(path_stats_csv))")
+println()
+end
 
-    n_plots = length(channels)
-    plt = plot(layout = (n_plots, 1), size=(900, 250*n_plots))
+# ╔═╡ 812069cd-02cf-4e48-8aa7-94753f6735a4
+md"
+## Resumen correción baseline (1ª)
+"
 
-    for (i, ch) in enumerate(channels)
-        y_orig  = eeg_orig[ch, i_start:i_end]
-        y_clean = eeg_clean[ch, i_start:i_end]
+# ╔═╡ 508362b0-0a1a-4eec-a26f-1c45db18563c
+begin
+println("=" ^ 60)
+println("✨ CORRECCIÓN DE BASELINE COMPLETADA")
+println("=" ^ 60)
+println()
+println("📋 RESUMEN:")
+println("  • Hipermatriz corregida: $(size(eeg_baseline_corrected))")
+println("  • Formato: (canales × muestras × segmentos)")
+println("  • Canales: $n_channels")
+println("  • Muestras por segmento: $segment_length_samples")
+println("  • Número de segmentos: $n_segments")
+println("  • Intervalo de baseline: $(baseline_start_s) s - $(baseline_end_s) s ($(baseline_start_s*1000) ms - $(baseline_end_s*1000) ms)")
+println("  • Muestras de baseline: $(baseline_start_sample) - $(baseline_end_sample)")
+println("  • Método: Resta de la media del intervalo de baseline")
+println()
+println("💾 Archivos guardados en: $dir_baseline")
+println("  → eeg_1st_baseline_correction.bin")
+println("  → dict_1st_baseline_correction.bin")
+println("  → baseline_correction_statistics.csv")
+println()
+end
 
-        ch_name = isnothing(chan_labels) ? "Ch $ch" : string(chan_labels[ch])
+# ╔═╡ c07064a7-0303-4299-a080-c45f0efd5c4f
+md"
+# Rechazo por Artefactos
 
-        plot!(plt[i], t, y_orig,
-              label = "Original",
-              title = "Canal $ch_name (t = $(t_start)s–$(t_start+t_len)s)",
-              xlabel = "Tiempo (s)",
-              ylabel = "µV")
+Después de la corrección de baseline, las épocas segmentadas pueden seguir conteniendo artefactos residuales como breves ráfagas musculares, saltos de electrodo o saturaciones que sobreviven a la limpieza basada en ICA. Para evitar contaminar las estimaciones de conectividad y espectro, se aplica un paso final de rechazo de artefactos que descarta segmentos completos cuya amplitud supera umbrales conservadores.
 
-        plot!(plt[i], t, y_clean,
-              label = "Limpio",
-              lw = 1.5)
+La rutina `src/artifact_rejection.jl` implementa un criterio simple e interpretable basado en amplitud: solo se inspeccionan los primeros
+
+```math
+N_{\mathrm{used}}
+```
+
+canales (por defecto: 30), y cualquier segmento en el que al menos una muestra en estos canales quede fuera del rango
+
+```math
+[A_{\min}, A_{\max}]
+```
+
+(por defecto
+
+```math
+A_{\min} = -70\,\mu\text{V}, \quad A_{\max} = +70\,\mu\text{V}
+```
+
+) se marca como inválido y se elimina.
+
+Esto produce una hipermatriz con menos segmentos pero con las mismas dimensiones de canales y tiempo. Los umbrales de
+
+```math
+\pm 70\,\mu\text{V}
+```
+
+se eligen para detectar artefactos evidentes (saturaciones, ráfagas EMG extremas) manteniéndose por encima de las amplitudes típicas en EEG en reposo; representan un compromiso conservador entre sensibilidad a valores atípicos y conservación de datos utilizables.
+
+Los parámetros `before_event_ms` y `after_event_ms` se almacenan para un posible rechazo relacionado con eventos, aunque la implementación actual utiliza únicamente umbrales globales de amplitud sobre todo el segmento.
+
+Formalmente, sea
+
+```math
+\mathbf{E}^{\mathrm{bl}} \in \mathbb{R}^{C \times L \times K}
+```
+
+el EEG segmentado y corregido por baseline (canales × muestras × segmentos), y sea
+
+```math
+\mathcal{C}_{\mathrm{used}} = \{1,\dots,N_{\mathrm{used}}\}
+```
+
+el conjunto de índices de canales que se inspeccionan.
+
+Para el segmento
+
+```math
+k
+```
+
+los datos inspeccionados son
+
+```math
+\mathbf{E}^{\mathrm{bl}}[\mathcal{C}_{\mathrm{used}}, :, k]
+```
+
+Se definen
+
+```math
+m_k = \min_{c \in \mathcal{C}_{\mathrm{used}},\, 1 \le n \le L} E^{\mathrm{bl}}_{c,n,k}
+```
+
+y
+
+```math
+M_k = \max_{c \in \mathcal{C}_{\mathrm{used}},\, 1 \le n \le L} E^{\mathrm{bl}}_{c,n,k}
+```
+
+El segmento se marca como inválido si
+
+```math
+m_k < A_{\min} \quad \text{o} \quad M_k > A_{\max}
+```
+
+En caso contrario, se conserva.
+
+La tasa de rechazo se define como
+
+```math
+\mathrm{rate} = \frac{K - K_{\mathrm{AR}}}{K}
+```
+
+donde
+
+```math
+K_{\mathrm{AR}}
+```
+
+es el número de segmentos retenidos. Esta magnitud sirve como métrica de calidad (por ejemplo, reportada en `artifact_rejection_statistics.csv`).
+
+Con fines diagnósticos, también se registra el conjunto de canales que violan los umbrales:
+
+```math
+\mathcal{V}_k =
+\{c \in \mathcal{C}_{\mathrm{used}} :
+\min_n E^{\mathrm{bl}}_{c,n,k} < A_{\min}
+\ \text{o} \
+\max_n E^{\mathrm{bl}}_{c,n,k} > A_{\max}\}
+```
+
+La hipermatriz filtrada
+
+```math
+\mathbf{E}^{\mathrm{AR}}
+```
+
+se construye concatenando únicamente los segmentos válidos.
+
+El Algoritmo 3 resume el procedimiento; la Tabla 3 y el cuadro inferior formalizan la Fase 5 del pipeline.
+"
+
+# ╔═╡ 13b382df-1a09-4478-81a3-7aa9d4ab62f7
+md"
+## Carga de datos (Baseline 1ª)
+"
+
+# ╔═╡ 16480b91-338f-4f7f-b4bd-89f6e73bde55
+begin
+println("✔ Datos con baseline correction cargados desde: $(basename(path_dict_baseline))")
+println("  → Dimensiones: $(size(eeg_baseline_corrected))")
+println("  → Formato: (canales × muestras × segmentos)")
+println("  → Número de canales: $n_channels")
+println("  → Muestras por segmento: $segment_length_samples")
+println("  → Número de segmentos: $n_segments")
+println("  → Frecuencia de muestreo: $(fs) Hz")
+println()
+end
+
+# ╔═╡ 021b17fa-84b6-4839-96e6-a5710fae3533
+md"
+## Configuración artifact rejection
+
+Se configuran los parámetros para la **detección de artefactos**:
+   - **Umbrales de amplitud:** valores fuera de este rango se consideran artefactos
+   - **Canales a usar:** solo se evalúan los primeros N canales (por defecto 30)
+   - **Ventanas temporales:** parámetros para rechazo alrededor de eventos
+     (actualmente no se usan en la detección, solo se guardan para referencia)
+"
+
+# ╔═╡ e790286e-3a1d-40a0-b323-cd3d9a81ed20
+begin
+n_channels_used = 30    # Número de canales a usar para artifact rejection
+# Solo se evalúan estos canales (típicamente los primeros)
+	
+min_amplitude_µV = -70.0                # Amplitud mínima permitida (µV)
+# Valores menores se consideran artefactos (saturaciones negativas)
+	
+max_amplitude_µV = +70.0                # Amplitud máxima permitida (µV)
+# Valores mayores se consideran artefactos (saturaciones positivas, picos)
+	
+before_event_ms = 200                   # Marcar como malo: antes del evento (ms)
+# NOTA: Actualmente no se usa en la detección
+	
+after_event_ms = 300                    # Marcar como malo: después del evento (ms)
+# NOTA: Actualmente no se usa en la detección
+
+# Convertir tiempos a muestras (para uso futuro)
+# Estos valores se guardan pero no se usan en la detección actual
+before_event_samples = Int(round(before_event_ms / 1000.0 * fs))
+after_event_samples = Int(round(after_event_ms / 1000.0 * fs))
+
+println("⚙️  CONFIGURACIÓN DE ARTIFACT REJECTION")
+println("-" ^ 80)
+println("  Canales usados: $n_channels_used")
+println("  Amplitud mínima permitida: $(min_amplitude_µV) µV")
+println("  Amplitud máxima permitida: $(max_amplitude_µV) µV")
+println("  Marcar como malo antes del evento: $(before_event_ms) ms ($(before_event_samples) muestras)")
+println("  Marcar como malo después del evento: $(after_event_ms) ms ($(after_event_samples) muestras)")
+println()
+
+# Verificar que tenemos al menos 30 canales
+if n_channels < n_channels_used
+    println("⚠️  ADVERTENCIA: Solo hay $n_channels canales disponibles, pero se requieren $n_channels_used")
+    n_channels_used = n_channels
+end
+
+# Usar los primeros n_channels_used canales
+channels_used = channels[1:n_channels_used]
+println("  → Canales utilizados para artifact rejection: $(join(channels_used, ", "))")
+println()
+end
+
+# ╔═╡ 35f75188-5502-443e-b78a-c0dd7c91f00f
+md"
+## Detección artefactos por segmento
+
+Esta sección evalúa cada segmento independientemente para **detectar artefactos**.
+
+**Criterio de rechazo:**
+
+Un segmento se marca como **malo** si CUALQUIER valor en los canales evaluados excede los umbrales de amplitud (±70 µV). 
+
+Esto es un criterio conservador: si hay un artefacto en cualquier canal, se rechaza todo el segmento.
+
+**Proceso:**
+   1. Para cada segmento, extrae los datos de los canales usados
+   2. Calcula el mínimo y máximo de amplitud en esos canales
+   3. Compara con los umbrales configurados
+   4. Si excede, marca el segmento como **malo** e identifica qué canales violaron
+   5. Almacena estadísticas para análisis posterior
+"
+
+# ╔═╡ 0551b30d-150d-4050-9981-c52e6dba2630
+begin
+println("🔄 DETECTANDO ARTEFACTOS")
+println("-" ^ 80)
+
+# Vector para marcar segmentos como buenos (true) o malos (false)
+# Inicialmente todos se asumen buenos, se marcan como malos si violan umbrales
+segment_is_good = fill(true, n_segments)
+
+# Estadísticas por segmento (para análisis y reportes)
+segment_min_amplitude = zeros(n_segments)        # amplitud mínima de cada segmento
+segment_max_amplitude = zeros(n_segments)        # amplitud máxima de cada segmento
+segment_exceeds_threshold = fill(false, n_segments)  # si el segmento excede umbrales
+segment_violation_channels = Vector{Vector{String}}(undef, n_segments)  # canales que violan
+
+# Evaluar cada segmento
+for seg_idx in 1:n_segments
+    # Obtener el segmento completo (todos los canales, todas las muestras)
+    segment_data = eeg_baseline_corrected[:, :, seg_idx]  # (canales × muestras)
+    
+    # Verificar solo los canales usados para artifact rejection
+    # Esto permite enfocarse en canales específicos (p.ej., los primeros 30)
+    segment_used = segment_data[1:n_channels_used, :]
+    
+    # Calcular min y max del segmento (en los canales usados)
+    # Estos valores determinan si el segmento tiene artefactos
+    seg_min = minimum(segment_used)  # valor mínimo en todo el segmento
+    seg_max = maximum(segment_used)   # valor máximo en todo el segmento
+    
+    segment_min_amplitude[seg_idx] = seg_min
+    segment_max_amplitude[seg_idx] = seg_max
+    
+    # Verificar si algún valor excede los umbrales
+    # Si el mínimo es menor que el umbral inferior O el máximo es mayor que el umbral superior,
+    # el segmento contiene artefactos
+    exceeds_min = seg_min < min_amplitude_µV  # ¿hay valores por debajo del umbral?
+    exceeds_max = seg_max > max_amplitude_µV  # ¿hay valores por encima del umbral?
+    
+    if exceeds_min || exceeds_max
+        # Segmento contiene artefactos → marcar como malo
+        segment_exceeds_threshold[seg_idx] = true
+        segment_is_good[seg_idx] = false
+        
+        # Identificar qué canales específicos violan el umbral
+        # Esto es útil para diagnóstico y reportes
+        violating_channels = String[]
+        for ch_idx in 1:n_channels_used
+            ch_data = segment_used[ch_idx, :]  # datos del canal en este segmento
+            # Verificar si este canal específico viola los umbrales
+            if minimum(ch_data) < min_amplitude_µV || maximum(ch_data) > max_amplitude_µV
+                push!(violating_channels, channels_used[ch_idx])
+            end
+        end
+        segment_violation_channels[seg_idx] = violating_channels
+    else
+        # Segmento está dentro de los umbrales → es bueno
+        segment_violation_channels[seg_idx] = String[]  # ningún canal viola
     end
-
-    display(plt)
-    return plt
-end
-end
-
-# ╔═╡ 51b05771-8410-40ca-b032-95792bf34935
-begin
-"""
-plot_channel_psd(eeg_orig, eeg_clean, fs;
-                 chan = 1,
-                 fmax = 80.0,
-                 chan_labels = nothing)
-"""
-function plot_channel_psd(eeg_orig::AbstractMatrix,
-                          eeg_clean::AbstractMatrix,
-                          fs::Real;
-                          chan::Int = 1,
-                          fmax::Real = 80.0,
-                          chan_labels = nothing)
-
-    x_orig  = eeg_orig[chan, :]
-    x_clean = eeg_clean[chan, :]
-
-    f_orig, psd_orig  = compute_psd(x_orig, fs)
-    f_clean, psd_clean = compute_psd(x_clean, fs)
-
-    # limitar a fmax
-    idx_orig  = f_orig .<= fmax
-    idx_clean = f_clean .<= fmax
-
-    ch_name = isnothing(chan_labels) ? "Ch $chan" : string(chan_labels[chan])
-
-    plt = plot(f_orig[idx_orig], psd_orig[idx_orig],
-               label = "Original",
-               xlabel = "Frecuencia (Hz)",
-               ylabel = "PSD (u.a.)",
-               title = "PSD antes vs después – $ch_name",
-               yscale = :log10)
-
-    plot!(plt, f_clean[idx_clean], psd_clean[idx_clean],
-          label = "Limpio")
-
-    display(plt)
-    return plt
-end
-end
-
-# ╔═╡ 856e9b3b-3261-4236-8b9f-3d8a9b60c2a4
-begin
-# Ejemplo: visualizar segmentos de EEG de los canales 1, 10 y 20
-# desde el segundo 10 hasta el segundo 14
-println("📊 Visualizando segmentos de EEG (canales 1, 10, 20)...")
-plot_eeg_segment(eeg_orig, eeg_clean, fs;
-                 channels = [1, 10, 20],
-                 t_start = 10.0,
-                 t_len = 4.0,
-                 chan_labels = channels)   
-end
-
-# ╔═╡ 9eb77221-5d78-48e4-b7f5-0317c3e1b492
-begin
-# Ejemplo: visualizar segmentos de EEG de los canales 1, 10 y 20
-# desde el segundo 10 hasta el segundo 14  
-plot_channel_psd(eeg_orig, eeg_clean, fs;
-                 chan = 1,
-                 fmax = 80.0,
-                 chan_labels = nothing)
-end
-
-# ╔═╡ 7d96aef0-87a7-4148-b095-ea33d2b5af78
-begin
-"""
-    compute_kurtosis_per_channel(eeg::AbstractMatrix)
-
-Calcula kurtosis por canal de una matriz canales × muestras.
-
-La kurtosis mide la "cola" de la distribución. Valores altos indican señales
-con picos pronunciados o valores extremos (típico de artefactos).
-Después de la limpieza ICA, la kurtosis debería disminuir en canales afectados por artefactos.
-
-Devuelve un vector con la kurtosis de cada canal.
-"""
-function compute_kurtosis_per_channel(eeg::AbstractMatrix)
-    n_chan, _ = size(eeg)
-    k = zeros(n_chan)
-    for ch in 1:n_chan
-        k[ch] = kurtosis_channel(eeg[ch, :])
+    
+    # Mostrar progreso cada 20 segmentos o al final
+    if seg_idx % 20 == 0 || seg_idx == n_segments
+        status = segment_is_good[seg_idx] ? "✓" : "✗"
+        println("  $status Segmento $seg_idx/$n_segments: min=$(round(seg_min, digits=2)) µV, max=$(round(seg_max, digits=2)) µV")
     end
-    return k
-end
 end
 
-# ╔═╡ abf2aa4b-b279-458a-afd0-fba54065d893
+println()
+println("✔ Detección de artefactos completada")
+println()
+end
+
+# ╔═╡ 7cd221d4-a26c-4be7-a29b-fcfbff3b8938
+md"
+## Estadísticas artifact rejection
+
+Esta sección calcula y muestra estadísticas sobre el proceso de rechazo:
+   - Número de segmentos mantenidos vs eliminados
+   - Distribución de amplitudes
+   - Detalles de segmentos eliminados
+   - Creación de DataFrame con estadísticas completas
+"
+
+# ╔═╡ 2fc078ca-f662-4d67-b564-7c7ed703b629
 begin
-"""
-compute_energy_per_channel(eeg::AbstractMatrix)
+println("📊 ESTADÍSTICAS DE ARTIFACT REJECTION")
+println("-" ^ 80)
 
-Calcula energía media por canal (mean(x.^2)).
+# Contar segmentos mantenidos y eliminados
+n_segments_kept = sum(segment_is_good)      # segmentos que pasaron el filtro
+n_segments_removed = sum(.!segment_is_good)  # segmentos rechazados
 
-La energía es una medida de la potencia de la señal. Después de la limpieza ICA,
-la energía debería disminuir ligeramente (se eliminan artefactos) pero no demasiado
-(si disminuye mucho, puede indicar que se eliminaron componentes neuronales importantes).
+println("  → Segmentos analizados: $n_segments")
+println("  → Segmentos mantenidos: $n_segments_kept")
+println("  → Segmentos eliminados: $n_segments_removed")
+println("  → Porcentaje mantenido: $(round(100 * n_segments_kept / n_segments, digits=2))%")
+println()
 
-Devuelve un vector con la energía media de cada canal.
-"""
-function compute_energy_per_channel(eeg::AbstractMatrix)
-    n_chan, _ = size(eeg)
-    e = zeros(n_chan)
-    for ch in 1:n_chan
-        x = eeg[ch, :]
-        e[ch] = mean(x.^2)  # energía = promedio del cuadrado
+if n_segments_removed > 0
+    println("  → Segmentos eliminados (detalles):")
+    removed_segments = findall(.!segment_is_good)
+    for seg_idx in removed_segments
+        println("    • Segmento $seg_idx: min=$(round(segment_min_amplitude[seg_idx], digits=2)) µV, max=$(round(segment_max_amplitude[seg_idx], digits=2)) µV")
+        if !isempty(segment_violation_channels[seg_idx])
+            println("      Canales con violación: $(join(segment_violation_channels[seg_idx], ", "))")
+        end
     end
-    return e
-end
+    println()
 end
 
-# ╔═╡ c0d7e4d3-4bef-47bc-bd35-88d6147a7613
+# Crear DataFrame con estadísticas
+artifact_stats = DataFrame(
+    Segmento = 1:n_segments,
+    Min_Amplitud_µV = segment_min_amplitude,
+    Max_Amplitud_µV = segment_max_amplitude,
+    Excede_Umbral = segment_exceeds_threshold,
+    Es_Bueno = segment_is_good,
+    Canales_Violacion = [join(segment_violation_channels[i], ", ") for i in 1:n_segments]
+)
+
+println("  → Estadísticas por segmento (primeros 5):")
+display(first(artifact_stats, 5))
+println()
+
+println("  → Resumen estadístico de amplitudes:")
+println("    Min global: $(round(minimum(segment_min_amplitude), digits=2)) µV")
+println("    Max global: $(round(maximum(segment_max_amplitude), digits=2)) µV")
+println("    Media de mínimos: $(round(mean(segment_min_amplitude), digits=2)) µV")
+println("    Media de máximos: $(round(mean(segment_max_amplitude), digits=2)) µV")
+println()
+end
+
+# ╔═╡ f56d927a-74d2-48b7-b7f3-efc9ed18e006
+md"
+## Filtrar segmentos
+
+Esta sección crea una nueva hipermatriz que contiene únicamente los segmentos que pasaron el filtro de artifact rejection. Los segmentos marcados como **malos** se eliminan completamente de los datos.
+
+El resultado es una hipermatriz con las mismas dimensiones en canales y muestras, pero con menos segmentos (solo los buenos).
+"
+
+# ╔═╡ 48f841e8-b704-414a-bbb1-d002a6e79755
 begin
-"""
-plot_kurtosis_energy(eeg_orig, eeg_clean; chan_labels = nothing)
+println("🔄 FILTRANDO SEGMENTOS")
+println("-" ^ 60)
 
-Hace dos figuras con comparación superpuesta:
-1) Kurtosis antes vs después por canal (en la misma gráfica)
-2) Energía antes vs después por canal (en la misma gráfica)
-"""
-function plot_kurtosis_energy(eeg_orig::AbstractMatrix,
-                              eeg_clean::AbstractMatrix;
-                              chan_labels = nothing)
+# Obtener índices de segmentos buenos
+# Estos son los segmentos que pasaron el filtro y se mantendrán
+good_segment_indices = findall(segment_is_good)
 
-    @assert size(eeg_orig) == size(eeg_clean)
+# Crear nueva hipermatriz solo con segmentos buenos
+# Se seleccionan solo las "rebanadas" (segmentos) que son buenas
+# Formato: (canales × muestras × segmentos_buenos)
+eeg_artifact_rejected = eeg_baseline_corrected[:, :, good_segment_indices]
+n_segments_kept_final = length(good_segment_indices)
 
-    n_chan, _ = size(eeg_orig)
-    chans = 1:n_chan
-
-    labels_x = isnothing(chan_labels) ? string.(chans) : string.(chan_labels)
-
-    # --- KURTOSIS ---
-    k_orig  = compute_kurtosis_per_channel(eeg_orig)
-    k_clean = compute_kurtosis_per_channel(eeg_clean)
-
-    # Gráfico de barras superpuestas para Kurtosis
-    plt_k = bar(labels_x, [k_orig k_clean],
-                label = ["Original" "Limpio"],
-                xlabel = "Canal",
-                ylabel = "Kurtosis",
-                title = "Kurtosis: Antes vs Después de ICA",
-                color = [:blue :green],
-                alpha = 0.7,
-                xticks = (1:length(labels_x), labels_x),
-                xrotation = 45,
-                size = (1200, 400),
-                legend = :topright)
-
-    display(plt_k)
-
-    # --- ENERGÍA ---
-    e_orig  = compute_energy_per_channel(eeg_orig)
-    e_clean = compute_energy_per_channel(eeg_clean)
-
-    # Gráfico de barras superpuestas para Energía
-    plt_e = bar(labels_x, [e_orig e_clean],
-                label = ["Original" "Limpio"],
-                xlabel = "Canal",
-                ylabel = "Energía media (µV²)",
-                title = "Energía: Antes vs Después de ICA",
-                color = [:blue :green],
-                alpha = 0.7,
-                xticks = (1:length(labels_x), labels_x),
-                xrotation = 45,
-                size = (1200, 400),
-                legend = :topright)
-
-    display(plt_e)
-
-    return plt_k, plt_e
-end
+println("  → Segmentos originales: $n_segments")
+println("  → Segmentos después del filtrado: $n_segments_kept_final")
+println("  → Dimensiones de la hipermatriz filtrada: $(size(eeg_artifact_rejected))")
+println()
 end
 
-# ╔═╡ ff20dba2-7a6c-4853-a7b9-b47a0f60696d
+# ╔═╡ 487d2c06-70ff-4537-83f6-7bd07cfa274b
+md"
+## Visualización de ejemplo
+
+Esta sección genera visualizaciones para inspeccionar los resultados:
+
+   1. **Gráfico temporal:** muestra algunos segmentos con los umbrales marcados 
+      - Segmentos buenos en azul
+      - Segmentos malos en rojo
+
+   2. **Histogramas:** distribución de amplitudes máximas y mínimas por segmento
+      - Permite ver si los umbrales son apropiados
+      - Muestra dónde están los umbrales en relación a la distribución
+"
+
+# ╔═╡ 77688f50-5b5c-4a41-89d5-1c19c0f2590e
 begin
-println("\n📊 Visualizando Kurtosis y Energía por canal...")
-plot_kurtosis_energy(eeg_orig, eeg_clean; chan_labels = channels)
+# Visualizar algunos segmentos (buenos y malos si hay)
+# Se muestran los primeros 5 segmentos como ejemplo
+
+p_artifact = plot(
+    xlabel = "Tiempo (s)",
+    ylabel = "Amplitud (µV)",
+    title = "Artifact Rejection - Canal $channel_name (ejemplo)",
+    legend = :outerright,
+    size = (1200, 500)
+)
+
+# Añadir líneas de umbral
+hline!(p_artifact, [min_amplitude_µV], 
+       label = "Umbral mínimo ($(min_amplitude_µV) µV)", 
+       linestyle = :dash, color = :red, alpha = 0.5)
+hline!(p_artifact, [max_amplitude_µV], 
+       label = "Umbral máximo ($(max_amplitude_µV) µV)", 
+       linestyle = :dash, color = :red, alpha = 0.5)
+
+# Plotear segmentos de ejemplo
+for seg_idx in 1:n_segments_plot
+    segment_data = eeg_baseline_corrected[ch_example, :, seg_idx]
+    is_good = segment_is_good[seg_idx]
+    color_seg = is_good ? :blue : :red
+    alpha_seg = is_good ? 0.7 : 0.4
+    label_seg = is_good ? "Seg $seg_idx (bueno)" : "Seg $seg_idx (malo)"
+    
+    plot!(p_artifact, time_segment, segment_data, 
+          label = label_seg, 
+          lw = 1.5, alpha = alpha_seg, color = color_seg)
 end
+
+p_artifact
+end
+
+# ╔═╡ 9715fadc-9d3b-45d4-a2f7-67e0a852be80
+begin
+# Histograma de amplitudes máximas y mínimas
+p_hist = plot(
+    layout = (2, 1),
+    size = (800, 600)
+)
+
+histogram!(p_hist[1], segment_max_amplitude, 
+          bins = 30,
+          xlabel = "Amplitud máxima (µV)",
+          ylabel = "Número de segmentos",
+          title = "Distribución de amplitudes máximas por segmento",
+          legend = false,
+          color = :blue,
+          alpha = 0.6)
+vline!(p_hist[1], [max_amplitude_µV], 
+       linestyle = :dash, color = :red, linewidth = 2,
+       label = "Umbral ($(max_amplitude_µV) µV)")
+
+histogram!(p_hist[2], segment_min_amplitude, 
+          bins = 30,
+          xlabel = "Amplitud mínima (µV)",
+          ylabel = "Número de segmentos",
+          title = "Distribución de amplitudes mínimas por segmento",
+          legend = false,
+          color = :blue,
+          alpha = 0.6)
+vline!(p_hist[2], [min_amplitude_µV], 
+       linestyle = :dash, color = :red, linewidth = 2,
+       label = "Umbral ($(min_amplitude_µV) µV)")
+
+p_hist
+end
+
+# ╔═╡ 37c074eb-6141-42b9-9a6b-dab79d781246
+md"
+# Corrección de baseline (2ª)
+
+Una segunda **corrección de baseline** (opcional) puede aplicarse a los segmentos que han pasado el rechazo de artefactos (salida de la Fase 5) si el análisis lo requiere; este paso se formaliza como la Fase 6 del pipeline.
+
+Si se utiliza, se aplica el mismo procedimiento basado en segmentos que en la Fase 4 (restar, para cada segmento, la media de una ventana de baseline) al conjunto reducido de segmentos.
+
+El resultado se utiliza posteriormente como entrada para la estimación de conectividad (Fase 7).
+"
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -3802,101 +2728,58 @@ version = "1.13.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═7a5d6ddb-33a3-422a-88a4-f76fc8f0c620
-# ╠═2ff7ee54-7bec-4e21-b804-e9fcc2f86a11
-# ╠═49ca7fca-11dc-4f81-b74f-b54e8b252e10
-# ╠═789269a7-1c3a-41a2-811c-c5b8e08ee1f3
-# ╠═177911fa-6acc-4cd5-b862-81fa0fef1daa
-# ╠═c5f19470-bda8-4420-b7f4-c3a1c94b4753
-# ╟─c8aaf8df-4f1b-4c07-84fd-8a5eb18ab0a7
-# ╠═01b14950-89b8-4df1-981f-44a13f6026cb
-# ╠═09a79ac1-4430-4729-bca5-5425a2ba330e
-# ╠═7523a05e-bb9e-48bc-9720-9a6178941273
-# ╠═580b258a-cde8-4c8a-bdd4-5c71f411cc6b
-# ╠═d9936d83-6fae-47af-9890-4c0594e2c782
-# ╠═9fd4518f-a809-4c1e-8a6f-ca26a557094e
-# ╠═98207097-b070-4b07-8ff5-1d29e64e5142
-# ╠═ad20b61f-27c5-46bd-b7c4-2d5125a523b7
-# ╠═3b9148cd-9027-42e5-9446-b1b1d1c39fdf
-# ╠═04fd2eda-02c4-49b5-ac82-c747a300bdf4
-# ╠═62db513e-efef-4f65-898e-4d1283e3c55a
-# ╠═818a6675-189e-44fe-abb5-94a1dab065ea
-# ╠═7e8b0401-0b43-43e4-a3f2-6f51c471da46
-# ╠═c289b2e6-294e-48ea-a8c7-75f1d5448d13
-# ╠═a036b633-2812-444e-9f72-7117faaac04e
-# ╠═c5ddf477-9edd-4ce7-aefa-d9a17b0c0fe0
-# ╠═eed453df-7646-41a7-af88-c5beb48902cd
-# ╠═76fb19ba-33ed-4214-992e-a3d1f0a1983f
-# ╠═f87ef5c2-1dfc-4d9a-be14-6238bf723025
-# ╠═1eb23ea8-5f04-4b28-b293-b8b376f259fd
-# ╠═e2a46fba-a630-4be3-920b-1023ebbfb570
-# ╠═eef5e8c8-5415-4407-8ad8-5b15dafcfb96
-# ╠═d290c6c6-eeca-4a72-87c6-6d5c4058736d
-# ╠═d7d45a88-a256-462d-ada2-50622508b62c
-# ╠═86cfb6a8-c4d0-4fe7-9626-65f82eede2b6
-# ╠═f604db17-6269-4b09-b461-0f8f699d8485
-# ╠═5d86e143-86a3-4e46-98f2-e65266e9ea1a
-# ╠═73fbcedf-3755-4f28-a308-94f4965feaca
-# ╠═0356c672-a4b1-4624-abcc-b97cf501cb8c
-# ╠═70d2ad9e-2a67-48b0-a5a3-a64b9fc974b0
-# ╠═282c6662-55e5-44a6-9af1-030b73b6545e
-# ╠═9f250578-81b4-486f-8d30-b54914158bf4
-# ╠═cda10a74-3790-499a-bc8a-2415bd3bb6cc
-# ╠═753841c5-5b71-4fcf-a482-5a30317ecb29
-# ╠═1ef7f377-0d74-4e14-879e-30c13dd54df9
-# ╠═2312ebe1-9c4c-4e26-856e-73c414d7441f
-# ╠═7077db9b-1233-4085-a6f3-e2e18d063c3c
-# ╠═77f56832-2314-4385-a847-571fa65eb65f
-# ╠═0f1d4728-d74e-4871-9845-bd470e9c990b
-# ╠═c8fb5e5f-ca7f-41f6-ad13-4d7211da73fc
-# ╠═e9ca5fa3-21fb-42cb-8114-8538a69ebc60
-# ╠═95643a9e-59d2-4873-a8d6-ca3c07f8fb14
-# ╠═4615eb2e-9602-425e-899a-2a590e71e1cc
-# ╠═758bdd3b-9681-496a-b5ed-0844552b851b
-# ╠═1720bdbb-e56b-406f-a524-7ecef994c8f7
-# ╠═319b5a80-5f4c-4973-ae94-75d09f735876
-# ╠═48d49f69-58de-4fff-89f8-7f71eeb5adc9
-# ╠═58424b09-e5c9-431f-a971-1faa4a1d6104
-# ╠═6c8a21b0-a2d8-4d78-90d5-0acf83909a84
-# ╠═9bd532f8-dd85-460e-9d8b-c43f7251c6e3
-# ╠═6e0aef9c-f860-45c7-abf7-28a7e3691308
-# ╠═452b7200-4636-42c8-91d1-660ff4497ae7
-# ╠═0f66f445-fe02-4c27-b7a1-2dd5a15ac405
-# ╠═53b80a6f-b5f4-434b-bec6-6ab699b4268c
-# ╠═81c89737-2b24-48ab-8c9e-4fea3ea5fa78
-# ╠═aba0ac49-d995-45fb-a650-dcba81b8379f
-# ╠═bf4f70fc-c2b3-4932-9320-20d88cde92a6
-# ╠═d20e61ec-8992-4629-81f2-67390dad967e
-# ╠═bfad913c-0ef8-46fc-a168-20d0f3eff740
-# ╠═2018768c-862a-44be-8f4e-28fa1ca54c76
-# ╠═c500f42c-34ad-4256-8b5e-d04990f41fd7
-# ╠═3ee89855-3d96-4107-bf43-c57c4ad96663
-# ╠═904430e1-10d6-40b0-8a08-a2325bc11ee1
-# ╠═0dc439c9-05ba-48ed-8150-3b50ef9dfcc9
-# ╠═c5e3850c-c33d-45da-847b-7727630392d9
-# ╠═c8d481a7-6ffd-4ae1-b5a4-69fd5cac68f0
-# ╠═50c0d9b2-71f1-401a-a471-2c81f93b9b31
-# ╠═32ee530f-e66a-44fb-ba43-96f59dde3616
-# ╠═308a57b0-5e60-41b9-8ed6-a2545ef434f8
-# ╠═dfc805d8-b213-4aa8-b4ce-87c5a7df53ca
-# ╠═a2687d65-dd55-4ef1-a4ad-c6857c4a736c
-# ╠═3a4ad856-e5ae-431e-a010-f69f7b199f6c
-# ╠═4ce98dc3-4644-4a70-8762-f94df502c485
-# ╠═9e09d533-942b-4a1e-a741-51d4eb82ae63
-# ╠═fd41bc1b-fea1-4bfd-bacd-3d953fda896a
-# ╠═04b9b52c-d9e6-4232-996a-bcf5f65cd2af
-# ╠═e8b98bb9-8bb1-4793-944d-384b4153cb6b
-# ╠═f716dd11-c0a7-4a9a-8113-5d449255fad1
-# ╠═bbe9e255-f695-4888-9163-ce8ae6726865
-# ╠═8d50e6a0-0a2c-45bf-bfa8-88733e52ebaf
-# ╠═a75dbfaf-da36-497b-926a-990872f74364
-# ╠═beec7fc7-1620-43c6-afb6-3fd7c098250a
-# ╠═51b05771-8410-40ca-b032-95792bf34935
-# ╠═856e9b3b-3261-4236-8b9f-3d8a9b60c2a4
-# ╠═9eb77221-5d78-48e4-b7f5-0317c3e1b492
-# ╠═7d96aef0-87a7-4148-b095-ea33d2b5af78
-# ╠═abf2aa4b-b279-458a-afd0-fba54065d893
-# ╠═c0d7e4d3-4bef-47bc-bd35-88d6147a7613
-# ╠═ff20dba2-7a6c-4853-a7b9-b47a0f60696d
+# ╠═a2fca222-2c13-11f1-bfbb-ffe9fd9d5381
+# ╠═9e06da1a-8985-43ed-a13e-4b0b4e34bbdd
+# ╠═4a417ce1-7265-4a51-954f-1dacb925486d
+# ╠═8c8b3d9d-a425-4c48-8fdc-ac987a3cdb39
+# ╠═b17f8e3c-8437-4658-baee-9fccb55991ea
+# ╠═9139e5ac-7c0a-43cd-aed4-44eb4eb3b115
+# ╠═91f7264e-9f4e-4ea1-95c0-77d9de3e6bbd
+# ╠═30ff2319-076f-43c2-a134-9016be56e46c
+# ╠═c220c177-7b8e-40cd-8d99-4aae100de7fc
+# ╠═37f24271-0da7-4236-9d84-6210a1e5ac0f
+# ╠═a83800b1-9df8-4536-9812-525bcad1902a
+# ╠═08cdbdf3-e827-4aea-a40b-6f157fe0ba5b
+# ╠═00b7e07b-b25b-4a72-9a96-59e7f18430bb
+# ╠═f6f6044b-2d6c-4116-b4c9-529cdc7c7d1f
+# ╠═98d2ba11-2456-4a9b-9e0a-ab20b5bd276d
+# ╠═7c15972a-dde7-45f6-8d18-b62da3587cc0
+# ╠═212b3eb6-3a86-4e41-a230-6c8b92147573
+# ╠═cec9cd67-27db-4736-85c5-2af2a0093364
+# ╠═7c3becba-7fc8-4eaf-86c6-2d92e08b04fa
+# ╠═9567bffe-65b2-4073-ae85-ee339577f9be
+# ╠═a892d381-a5a7-4659-bb5b-19e65183522f
+# ╠═7f0a28b2-2cd9-4910-8312-dad488e40399
+# ╠═bd6dd4b5-ed90-4b30-9c0f-a04f7a8adcf7
+# ╠═a877c6a1-25b2-43b3-9191-6da2522b65e9
+# ╠═56795636-501e-4928-a722-d515eedb4dd3
+# ╠═720b30e4-bc60-48f5-99bb-d1c7fee7ae57
+# ╠═381398ab-95f6-4fe2-81c6-a0478915c7c0
+# ╠═7a7fd84b-36f0-4a7f-aacf-338a6a523311
+# ╠═584aed06-bed9-4158-8b2d-11f8fe72b693
+# ╠═aa01d3bf-16c6-4436-9eb6-55f737e4fdba
+# ╠═0be498cd-14f4-45d1-8028-40a793716b0f
+# ╠═d9e86f10-3244-476f-aca1-2c26fc5b592a
+# ╠═bc39f4d8-0192-41c4-885a-d09f65de298a
+# ╠═bc400aa6-b180-4b02-8abc-60da09acb937
+# ╠═76b687c1-cfc9-4206-a9bd-3859932e9c09
+# ╠═47ce252b-c3db-4f75-85c1-0fda4b34da80
+# ╠═812069cd-02cf-4e48-8aa7-94753f6735a4
+# ╠═508362b0-0a1a-4eec-a26f-1c45db18563c
+# ╠═c07064a7-0303-4299-a080-c45f0efd5c4f
+# ╠═13b382df-1a09-4478-81a3-7aa9d4ab62f7
+# ╠═16480b91-338f-4f7f-b4bd-89f6e73bde55
+# ╠═021b17fa-84b6-4839-96e6-a5710fae3533
+# ╠═e790286e-3a1d-40a0-b323-cd3d9a81ed20
+# ╠═35f75188-5502-443e-b78a-c0dd7c91f00f
+# ╠═0551b30d-150d-4050-9981-c52e6dba2630
+# ╠═7cd221d4-a26c-4be7-a29b-fcfbff3b8938
+# ╠═2fc078ca-f662-4d67-b564-7c7ed703b629
+# ╠═f56d927a-74d2-48b7-b7f3-efc9ed18e006
+# ╠═48f841e8-b704-414a-bbb1-d002a6e79755
+# ╠═487d2c06-70ff-4537-83f6-7bd07cfa274b
+# ╠═77688f50-5b5c-4a41-89d5-1c19c0f2590e
+# ╠═9715fadc-9d3b-45d4-a2f7-67e0a852be80
+# ╠═37c074eb-6141-42b9-9a6b-dab79d781246
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

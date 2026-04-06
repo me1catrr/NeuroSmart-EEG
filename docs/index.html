@@ -154,6 +154,13 @@
       font-size: 1.12rem;
       color: #111827;
     }
+    .module-stage {
+      margin: 0 0 0.35rem;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      color: #2563eb;
+      font-weight: 700;
+    }
     .module-description {
       margin: 0 0 1rem;
       color: var(--muted);
@@ -239,7 +246,8 @@
         <div class="cards-grid" role="list">
           <article class="module-card" role="listitem">
             <div class="module-icon" aria-hidden="true">⚙️</div>
-            <h3 class="module-title">Setup</h3>
+            <p class="module-stage">PASO 1</p>
+            <h3 class="module-title">SETUP</h3>
             <p class="module-description">
               Configuracion del proyecto, entorno de trabajo en Julia/Pluto y
               criterios de reproducibilidad para ejecutar el pipeline.
@@ -249,6 +257,7 @@
 
           <article class="module-card" role="listitem">
             <div class="module-icon" aria-hidden="true">🧩</div>
+            <p class="module-stage">PASO 2</p>
             <h3 class="module-title">BIDS</h3>
             <p class="module-description">
               Estandarizacion de datasets EEG bajo el esquema BIDS para una
@@ -258,18 +267,9 @@
           </article>
 
           <article class="module-card" role="listitem">
-            <div class="module-icon" aria-hidden="true">🔗</div>
-            <h3 class="module-title">Connectivity</h3>
-            <p class="module-description">
-              Exploracion de conectividad funcional y dinamicas entre regiones
-              cerebrales a partir de senales EEG.
-            </p>
-            <a class="module-link" href="Pluto/Connectivity/index.html">Abrir modulo</a>
-          </article>
-
-          <article class="module-card" role="listitem">
             <div class="module-icon" aria-hidden="true">🛠️</div>
-            <h3 class="module-title">Preprocessing</h3>
+            <p class="module-stage">PASO 3</p>
+            <h3 class="module-title">PREPROCESSING</h3>
             <p class="module-description">
               Limpieza de artefactos, filtrado y preparacion de senales para
               asegurar calidad en el analisis posterior.
@@ -278,13 +278,47 @@
           </article>
 
           <article class="module-card" role="listitem">
+            <div class="module-icon" aria-hidden="true">🧠</div>
+            <p class="module-stage">PASO 4</p>
+            <h3 class="module-title">ICA</h3>
+            <p class="module-description">
+              Separacion de componentes independientes para identificar y
+              eliminar artefactos en la senal EEG de forma controlada.
+            </p>
+            <a class="module-link" href="Pluto/ICA/index.html">Abrir modulo</a>
+          </article>
+
+          <article class="module-card" role="listitem">
             <div class="module-icon" aria-hidden="true">📊</div>
-            <h3 class="module-title">Processing</h3>
+            <p class="module-stage">PASO 5</p>
+            <h3 class="module-title">PROCESSING</h3>
             <p class="module-description">
               Analitica de caracteristicas EEG, transformaciones de senal y
               evaluacion de resultados para investigacion aplicada.
             </p>
             <a class="module-link" href="Pluto/Processing/index.html">Abrir modulo</a>
+          </article>
+
+          <article class="module-card" role="listitem">
+            <div class="module-icon" aria-hidden="true">🌈</div>
+            <p class="module-stage">PASO 6</p>
+            <h3 class="module-title">SPECTRAL</h3>
+            <p class="module-description">
+              Analisis en el dominio frecuencial para caracterizar bandas EEG y
+              cuantificar patrones espectrales relevantes.
+            </p>
+            <a class="module-link" href="Pluto/Spectral/index.html">Abrir modulo</a>
+          </article>
+
+          <article class="module-card" role="listitem">
+            <div class="module-icon" aria-hidden="true">🔗</div>
+            <p class="module-stage">PASO 7</p>
+            <h3 class="module-title">CONNECTIVITY</h3>
+            <p class="module-description">
+              Exploracion de conectividad funcional y dinamicas entre regiones
+              cerebrales a partir de senales EEG.
+            </p>
+            <a class="module-link" href="Pluto/Connectivity/index.html">Abrir modulo</a>
           </article>
         </div>
       </div>

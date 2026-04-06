@@ -39,6 +39,12 @@ using StatsBase
 using Plots
 # El backend GR se inicializa automáticamente al crear el primer plot
 
+# Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
+# cargamos utilidades de rutas para disponer de `stage_dir`.
+if !@isdefined(stage_dir)
+    include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+end
+
 # -----------------------------------------------------------------------------
 # 1. Carga de datos después de ICA cleaning
 # -----------------------------------------------------------------------------

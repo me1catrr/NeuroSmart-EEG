@@ -27,22 +27,34 @@ const MODULES = [
         description = "Estandarizacion BIDS para datasets EEG",
     ),
     (
-        name = "Connectivity",
-        source = "Pluto/Connectivity/Connectivity.jl",
-        target = "docs/Pluto/Connectivity/index.html",
-        description = "Analisis de conectividad funcional en EEG",
-    ),
-    (
         name = "Preprocessing",
         source = "Pluto/Preprocessing/Preprocessing.jl",
         target = "docs/Pluto/Preprocessing/index.html",
         description = "Limpieza y preparacion de senales EEG",
     ),
     (
+        name = "ICA",
+        source = "Pluto/Processing/ICA.jl",
+        target = "docs/Pluto/ICA/index.html",
+        description = "Separacion de componentes independientes para limpieza EEG",
+    ),
+    (
         name = "Processing",
         source = "Pluto/Processing/Processing.jl",
         target = "docs/Pluto/Processing/index.html",
         description = "Extraccion y analisis de caracteristicas",
+    ),
+    (
+        name = "Spectral",
+        source = "Pluto/Spectral/Spectral.jl",
+        target = "docs/Pluto/Spectral/index.html",
+        description = "Analisis espectral y dinamica en frecuencia para EEG",
+    ),
+    (
+        name = "Connectivity",
+        source = "Pluto/Connectivity/Connectivity.jl",
+        target = "docs/Pluto/Connectivity/index.html",
+        description = "Analisis de conectividad funcional en EEG",
     ),
 ]
 
