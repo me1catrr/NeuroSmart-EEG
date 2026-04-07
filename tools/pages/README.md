@@ -37,6 +37,11 @@ Guia principal y unica del flujo de publicacion web para este repositorio Julia 
   - Si hay cambios: `git add .` -> `git commit` -> `git push`.
   - Fallback unico para upstream ausente: `git push --set-upstream origin <rama_actual>`.
 
+- `tools/pages/export_pluto.jl`
+  - Exporta notebooks Pluto a HTML estatico sin usar la web.
+  - Salida: `exports/Pluto/<Modulo>/index.html` (+ assets).
+  - Si no indicas modulos, exporta todos.
+
 ## Comandos
 
 ```bash
@@ -55,10 +60,19 @@ julia tools/pages/publish.jl
 julia tools/pages/publish.jl "mensaje"
 ```
 
+```bash
+julia --project=. tools/pages/export_pluto.jl
+```
+
+```bash
+julia --project=. tools/pages/export_pluto.jl ICA Spectral Connectivity
+```
+
 ## Flujo recomendado
 
 1. Editar notebook fuente en `Pluto/<Modulo>/<Modulo>.jl`.
-2. Exportar HTML desde Pluto.jl manualmente.
+2. Exportar HTML (CLI recomendado):
+   - `julia --project=. tools/pages/export_pluto.jl`
 3. Guardar la exportacion completa en `exports/Pluto/<Modulo>/` (incluyendo `index.html` y assets).
 4. Ejecutar `julia tools/pages/build.jl`.
 5. Verificar `docs/index.html` y `docs/Pluto/<Modulo>/index.html`.
