@@ -35,29 +35,238 @@ md"""
 notebook_intro("PROCESSING")
 
 # ╔═╡ 9139e5ac-7c0a-43cd-aed4-44eb4eb3b115
-md"
-# Segmentación señal EEG
+md"""
+## Segmentación
 
-Esta rutina divide la señal **EEG** continua en segmentos temporales de longitud fija. Los datos ya han sido limpiados mediante **ICA** y están listos para ser segmentados.
+After ICA cleaning (Phase 2b), the continuous EEG is free of the main artefactual sources and is ready to be divided into fixed-length epochs for spectral and connectivity analysis.
 
-**PROCESO:**
-   1. Carga datos continuos después de ICA cleaning
-   2. Configura parámetros de segmentación (longitud, solapamiento)
-   3. Divide la señal en segmentos consecutivos de longitud fija
-   4. Crea una hipermatriz 3D: (canales × muestras × segmentos)
-   5. Calcula estadísticas por segmento
-   6. Genera visualizaciones de ejemplo
-   7. Guarda hipermatriz segmentada y metadatos
+Segmentation produces a 3D hypermatrix
 
-**CONFIGURACIÓN:**
-   - Longitud de segmento: 1.00 s (500 muestras a 500 Hz)
-   - Solapamiento: 0.00 s (segmentos consecutivos sin solapamiento)
-   - Skip bad intervals: No (no se implementa actualmente)
+```math
+\mathbf{E} \in \mathbb{R}^{C \times L \times K}
+```
 
-**Justificación Técnica:**
+channels × samples per segment × segments.
 
-Se usaron segmentos de 1 s para favorecer la resolución espectral posterior (resolución ~1 Hz = fs/longitud_segmento). No se aplicó solapamiento para facilitar el cómputo de FFT y SNR por segmento, y para mantener segmentos estadísticamente independientes. En resting state con análisis espectral, este enfoque es válido y compatible con el método clásico de Welch si posteriormente se aplica promediado espectral. La hipermatriz resultante permite análisis por segmento (p.ej., artifact rejection) y promediado posterior.
-"
+Each segment is a contiguous block of
+
+```math
+L = F_s \cdot T_{\mathrm{seg}}
+```
+
+samples (e.g. $T_{\mathrm{seg}} = 1\,\text{s}$ at $F_s = 500\,\text{Hz}$ gives $L = 500$).
+
+The step between consecutive segment onsets is
+
+```math
+\text{step} = L - \text{overlap}
+```
+
+With zero overlap, $\text{step} = L$ and segments are statistically independent, which simplifies FFT-based spectral estimation and later averaging.
+
+The number of full segments is
+
+```math
+K = \left\lfloor \frac{N_{\mathrm{total}} - L}{\text{step}} \right\rfloor + 1
+```
+
+where $N_{\mathrm{total}}$ is the length of the continuous signal; any trailing samples that do not form a complete segment are discarded.
+
+The 1 s segment length balances spectral resolution ($\approx F_s/L \approx 1\,\text{Hz}$, adequate for band-based connectivity) with the assumption of weak stationarity within each segment, which is required for stable cross-spectral and wPLI estimation.
+
+The implementation is in `src/segmentation.jl`, which loads `data/ICA/dict_EEG_ICA_clean.bin`, applies the splitting, computes per-segment statistics (mean, std, min, max, RMS), generates example plots (overlaid and stacked segments), and saves the hypermatrix and metadata to `data/segmentation/`.
+
+Algorithm 1 and Table 1 summarise the step; the box below formalises Pipeline Phase 3.
+
+!!! info "Algoritmo Segmentación en épocas de longitud fija (`segmentation.jl`)"
+
+    **Entrada:**  
+    `dict_EEG` (diccionario de canales con EEG limpio tras ICA),  
+    `F_s`, `T_seg`, `overlap`
+
+    1. Cálculo de parámetros de segmentación
+
+       ```text
+       L      ← floor(F_s · T_seg)
+       step   ← L − overlap
+       N_total ← length(dict_EEG[channels[1]])
+       ```
+
+    2. Número de segmentos
+
+       ```text
+       K ← floor((N_total − L) / step) + 1
+       ```
+
+    3. Inicialización de la hipermatriz
+
+       ```text
+       Allocate E ∈ ℝ^{C × L × K}
+       ```
+
+    4. Segmentación por canal
+
+       ```text
+       for c = 1 to C
+
+           signal ← dict_EEG[channels[c]]
+
+           for k = 1 to K
+
+               start ← (k − 1) · step + 1
+               end   ← start + L − 1
+
+               if end ≤ N_total
+                   E[c,:,k] ← signal[start : end]
+               else
+                   copy available samples
+                   pad or truncate if needed
+               end
+
+           end
+
+       end
+       ```
+
+    **Salida:**  
+    `E` (hipermatriz de segmentos),  
+    `K` (número de segmentos),  
+    `L` (muestras por segmento),  
+    `step` (desplazamiento entre segmentos)
+
+    Opcionalmente: estadísticas por segmento  
+    `(mean, std, min, max, RMS)`
+
+!!! info "Pipeline Fase 3: Segmentación"
+
+    **Objetivo.**
+    - Dividir el EEG continuo limpio tras ICA en segmentos de longitud fija sin solapamiento.
+    - Construir una hipermatriz tridimensional (canales × muestras × segmentos).
+    - Generar metadatos y estadísticas necesarias para las fases posteriores de corrección de baseline y estimación de conectividad.
+
+    **Entrada.**
+    - EEG limpio tras ICA: `data/ICA/dict_EEG_ICA_clean.bin`  
+      (señales continuas indexadas por canal).
+
+    - Parámetros de segmentación:
+
+      ```math
+      F_s = 500\,\text{Hz}
+      ```
+
+      ```math
+      T_{\mathrm{seg}} = 1\,\text{s}
+      ```
+
+      ```math
+      \text{overlap} = 0\,\text{s}
+      ```
+
+    **Salida.**
+    - `data/segmentation/eeg_segmented.bin`: hipermatriz
+
+      ```math
+      \mathbf{E} \in \mathbb{R}^{C \times L \times K}
+      ```
+
+      donde
+
+      ```math
+      L = 500
+      ```
+
+      y
+
+      ```math
+      K = \left\lfloor \frac{N_{\mathrm{total}} - L}{\text{step}} \right\rfloor + 1
+      ```
+
+    - `data/segmentation/dict_segmentation_info.bin`: diccionario con:
+        - `eeg_segmented`
+        - `channels`
+        - `fs`
+        - `segment_length_s`
+        - `segment_length_samples`
+        - `segment_overlap_s`
+        - `segment_step_samples`
+        - `n_segments`
+        - `n_channels`
+        - `n_samples_total`
+
+    - `data/segmentation/segment_statistics.csv`: estadísticas por segmento  
+      (media, desviación estándar, mínimo, máximo y RMS) para verificación.
+
+    - Opcional: gráficos de control de calidad  
+      (primer canal con segmentos superpuestos o segmentos apilados).
+
+    **Pasos de procesamiento (alineados con `src/segmentation.jl`).**
+
+    1. **Carga de datos.**  
+       Cargar `dict_EEG_ICA_clean.bin` y obtener:
+
+       - `channels`
+       - número total de muestras
+
+       ```math
+       N_{\mathrm{total}}
+       ```
+
+    2. **Definición de parámetros de segmentación.**  
+       Calcular la longitud del segmento:
+
+       ```math
+       L = F_s \cdot T_{\mathrm{seg}}
+       ```
+
+       Definir el paso entre segmentos (sin solapamiento):
+
+       ```math
+       \text{step} = L
+       ```
+
+       Calcular el número total de segmentos:
+
+       ```math
+       K = \left\lfloor \frac{N_{\mathrm{total}} - L}{\text{step}} \right\rfloor + 1
+       ```
+
+    3. **Construcción de la hipermatriz.**  
+       Reservar memoria para
+
+       ```math
+       \mathbf{E} \in \mathbb{R}^{C \times L \times K}
+       ```
+
+       Para cada canal \(c\) y segmento \(k\), copiar el bloque correspondiente de señal:
+
+       ```math
+       \mathbf{E}[c,:,k] =
+       \text{signal}[(k-1)\text{step}+1 : (k-1)\text{step}+L]
+       ```
+
+    4. **Cálculo de estadísticas.**  
+       Para cada segmento calcular:
+
+       - media  
+       - desviación estándar  
+       - mínimo  
+       - máximo  
+       - RMS  
+
+       Guardar los resultados en `segment_statistics.csv`.
+
+    5. **Visualización (opcional).**  
+       Generar gráficos de control de calidad, por ejemplo:
+
+       - primeros segmentos superpuestos del primer canal  
+       - todos los segmentos apilados  
+
+    6. **Guardado de resultados.**  
+       - Serializar la hipermatriz en `eeg_segmented.bin`.
+       - Construir el diccionario `dict_segmentation_info` con los metadatos y guardarlo en `dict_segmentation_info.bin`.
+
+       Los datos resultantes se utilizan como entrada para la **Fase 4: corrección de baseline**.
+"""
 
 # ╔═╡ 91f7264e-9f4e-4ea1-95c0-77d9de3e6bbd
 md"
@@ -439,95 +648,159 @@ println()
 end
 
 # ╔═╡ 720b30e4-bc60-48f5-99bb-d1c7fee7ae57
-md"
-# Corrección de Línea Base (1ª)
+md"""
+!!! info "Algoritmo Corrección de baseline por segmento (`baseline.jl`)"
 
-Tras la segmentación en épocas de longitud fija, cada segmento puede conservar un desplazamiento DC (offset) o una deriva lenta que difiere entre segmentos. La corrección de baseline, antes de eliminar artefactos, elimina este desplazamiento restando, de cada segmento, la media de un intervalo de referencia predefinido (normalmente el inicio del segmento). El resultado es que la ventana de baseline tiene media aproximadamente cero en cada segmento, de modo que las estimaciones de amplitud y espectrales no se vean sesgadas por offsets específicos de cada segmento.
+    **Entrada:**  
+    ``E ∈ ℝ^{C × L × K}`` (EEG segmentado),  
+    `F_s`, `t_start`, `t_end`
 
-En EEG en reposo sin estímulos discretos, este paso no corresponde a un baseline fisiológico de tipo pre-estímulo en el sentido de potenciales evocados; actúa como una normalización por segmento que elimina el nivel DC de la porción inicial de cada época y homogeneiza los segmentos para análisis posteriores de conectividad o espectro. Una alternativa sería restar la media de todo el segmento (demean de toda la época), lo cual también es válido para análisis puramente espectrales; sin embargo, aquí se mantiene el enfoque basado en un intervalo para conservar la consistencia con pipelines previos y permitir una ventana de baseline bien definida (por ejemplo, los primeros 100 ms) para informes y comprobaciones de calidad.
+    1. Cálculo de índices del intervalo de baseline
 
-La implementación (`src/baseline.jl`) asume datos segmentados almacenados como un arreglo tridimensional
+       ```text
+       n_start ← floor(t_start · F_s) + 1
+       n_end   ← floor(t_end   · F_s)
+       ```
 
-```math
-\mathbf{E} \in \mathbb{R}^{C \times L \times K}
-```
+    2. Inicialización de la señal corregida
 
-(canales × muestras por segmento × segmentos).
+       ```text
+       E_corr ← copy(E)
+       ```
 
-La ventana de baseline se define como
+    3. Corrección por canal y segmento
 
-```math
-[t_{\mathrm{start}}, t_{\mathrm{end}}]
-```
+       ```text
+       for c = 1 to C
+           for k = 1 to K
 
-en segundos. A una frecuencia de muestreo
+               segment ← E_corr[c,:,k]
 
-```math
-F_s
-```
+               baseline_interval ← segment[n_start : n_end]
 
-esto corresponde a los índices de muestra
+               μ ← mean(baseline_interval)
 
-```math
-n_{\mathrm{start}} \text{ -- } n_{\mathrm{end}}
-```
+               E_corr[c,:,k] ← segment − μ
 
-Para cada canal
+           end
+       end
+       ```
 
-```math
-c
-```
+    **Salida:**  
+    `E_corr` (EEG segmentado con corrección de baseline aplicada)
 
-y segmento
+!!! info "Pipeline Fase 4: Corrección de baseline"
 
-```math
-k
-```
+    **Objetivo.**
+    - Eliminar el desplazamiento DC de cada segmento restando la media de un intervalo de baseline.
+    - Utilizar como baseline los primeros 100 ms de cada segmento.
+    - Generar EEG segmentado corregido y estadísticas de verificación para los análisis posteriores de conectividad y espectro.
 
-la media del baseline es
+    **Entrada.**
+    - EEG segmentado: `data/segmentation/dict_segmentation_info.bin`, que contiene:
+        - `eeg_segmented` (hipermatriz \(C \times L \times K\))
+        - `channels`
+        - `fs`
+        - `segment_length_samples`
+        - `n_segments`
+        - `n_channels`
 
-```math
-\mu_{c,k} = \frac{1}{N_{\mathrm{bl}}} \sum_{n=n_{\mathrm{start}}}^{n_{\mathrm{end}}} E_{c,n,k}
-```
+    - Ventana de baseline:
 
-donde
+      ```math
+      t_{\mathrm{start}} = 0\,\text{s}, \quad t_{\mathrm{end}} = 0.1\,\text{s}
+      ```
 
-```math
-N_{\mathrm{bl}} = n_{\mathrm{end}} - n_{\mathrm{start}} + 1
-```
+      (primeros **100 ms** de cada segmento).
 
-El segmento corregido se define como
+    **Salida.**
+    - `data/baseline/eeg_1st_baseline_correction.bin`: hipermatriz corregida
 
-```math
-E_{c,:,k}^{\mathrm{corr}} = E_{c,:,k} - \mu_{c,k}
-```
+      ```math
+      \mathbf{E}^{\mathrm{corr}}
+      ```
 
-De este modo, el intervalo de baseline tiene media cero y el resto del segmento se desplaza por la misma constante. La desviación estándar del segmento permanece inalterada.
+      (canales × muestras × segmentos).
 
-La configuración por defecto utiliza
+    - `data/baseline/dict_1st_baseline_correction.bin`: diccionario con:
+        - `eeg_baseline_corrected`
+        - `eeg_segmented_original`
+        - `channels`
+        - `fs`
+        - parámetros de segmentación y baseline
+        - `baseline_type = "segment-based"`
+        - `correction_method = "subtract_baseline_mean"`
 
-```math
-t_{\mathrm{start}} = 0
-```
+    - `data/baseline/baseline_correction_statistics.csv`: estadísticas por segmento  
+      (media, desviación estándar, media del baseline antes y después de la corrección y diferencia).
 
-y
+    **Pasos de procesamiento (alineados con `src/baseline.jl`).**
 
-```math
-t_{\mathrm{end}} = 0.1\,\text{s}
-```
+    1. **Carga de datos.**  
+       Cargar `dict_segmentation_info.bin` y extraer:
 
-(primeros 100 ms). Con
+       - `eeg_segmented`
+       - `channels`
+       - `fs`
+       - `segment_length_samples`
+       - `n_segments`
+       - `n_channels`
 
-```math
-F_s = 500\,\text{Hz}
-```
+    2. **Cálculo de índices de baseline.**  
+       Determinar los índices correspondientes al intervalo de baseline:
 
-esto corresponde a las muestras 1–50.
+       ```math
+       n_{\mathrm{start}} = \lfloor t_{\mathrm{start}} F_s \rfloor + 1
+       ```
 
-La ventana de 100 ms es lo suficientemente corta para evitar la contaminación por deriva lenta dentro del segmento y lo suficientemente larga para proporcionar una estimación estable de la media del segmento utilizada en la sustracción del baseline.
+       ```math
+       n_{\mathrm{end}} = \lfloor t_{\mathrm{end}} F_s \rfloor
+       ```
 
-El Algoritmo 2 resume el procedimiento; la Tabla 2 y el cuadro inferior formalizan la Fase 4 del pipeline.
-"
+       Por ejemplo, con
+
+       ```math
+       F_s = 500\,\text{Hz}
+       ```
+
+       el intervalo \([0, 0.1]\) s corresponde a las muestras **1–50**.
+
+    3. **Corrección de baseline.**  
+       Para cada canal \(c\) y segmento \(k\), calcular la media del baseline:
+
+       ```math
+       \mu_{c,k} = \text{mean}(\mathbf{E}[c, n_{\mathrm{start}}:n_{\mathrm{end}}, k])
+       ```
+
+       y restarla a todo el segmento:
+
+       ```math
+       \mathbf{E}^{\mathrm{corr}}[c,:,k] = \mathbf{E}[c,:,k] - \mu_{c,k}
+       ```
+
+    4. **Verificación.**  
+       Calcular por segmento:
+
+       - media  
+       - desviación estándar  
+       - media del baseline antes de la corrección  
+       - media del baseline después de la corrección  
+
+       Confirmar que la media del baseline posterior sea aproximadamente
+
+       ```math
+       0
+       ```
+
+       Opcionalmente generar un gráfico comparativo (por ejemplo, primer canal y primeros segmentos) con el intervalo de baseline marcado.
+
+    5. **Guardado de resultados.**  
+       - Serializar `eeg_baseline_corrected` en `eeg_1st_baseline_correction.bin`.
+       - Construir el diccionario `dict_1st_baseline_correction` y guardarlo en `dict_1st_baseline_correction.bin`.
+       - Exportar las estadísticas a `baseline_correction_statistics.csv`.
+
+       Los datos resultantes se utilizan como entrada para la **Fase 5: rechazo de artefactos**.
+"""
 
 # ╔═╡ 381398ab-95f6-4fe2-81c6-a0478915c7c0
 md"
@@ -812,121 +1085,214 @@ println()
 end
 
 # ╔═╡ c07064a7-0303-4299-a080-c45f0efd5c4f
-md"
-# Rechazo por Artefactos
+md"""
+!!! info "Algoritmo Rechazo de artefactos basado en amplitud (`artifact_rejection.jl`)"
 
-Después de la corrección de baseline, las épocas segmentadas pueden seguir conteniendo artefactos residuales como breves ráfagas musculares, saltos de electrodo o saturaciones que sobreviven a la limpieza basada en ICA. Para evitar contaminar las estimaciones de conectividad y espectro, se aplica un paso final de rechazo de artefactos que descarta segmentos completos cuya amplitud supera umbrales conservadores.
+    **Entrada:**  
+    ``E_bl ∈ ℝ^{C × L × K}`` (segmentos corregidos por baseline),  
+    lista de canales, `N_used`, `A_min`, `A_max`
 
-La rutina `src/artifact_rejection.jl` implementa un criterio simple e interpretable basado en amplitud: solo se inspeccionan los primeros
+    1. Selección de canales a inspeccionar
 
-```math
-N_{\mathrm{used}}
-```
+       ```text
+       C_used ← {1, … , min(N_used, C)}
+       ```
 
-canales (por defecto: 30), y cualquier segmento en el que al menos una muestra en estos canales quede fuera del rango
+    2. Inicialización
 
-```math
-[A_{\min}, A_{\max}]
-```
+       ```text
+       segment_is_good[1:K] ← true
+       initialise arrays for:
+           per-segment min amplitude
+           per-segment max amplitude
+           violating channel lists
+       ```
 
-(por defecto
+    3. Evaluación de cada segmento
 
-```math
-A_{\min} = -70\,\mu\text{V}, \quad A_{\max} = +70\,\mu\text{V}
-```
+       ```text
+       for k = 1 to K
 
-) se marca como inválido y se elimina.
+           segment_used ← E_bl[C_used,:,k]
 
-Esto produce una hipermatriz con menos segmentos pero con las mismas dimensiones de canales y tiempo. Los umbrales de
+           m_k ← min(segment_used)
+           M_k ← max(segment_used)
 
-```math
-\pm 70\,\mu\text{V}
-```
+           if (m_k < A_min) or (M_k > A_max)
 
-se eligen para detectar artefactos evidentes (saturaciones, ráfagas EMG extremas) manteniéndose por encima de las amplitudes típicas en EEG en reposo; representan un compromiso conservador entre sensibilidad a valores atípicos y conservación de datos utilizables.
+               segment_is_good[k] ← false
 
-Los parámetros `before_event_ms` y `after_event_ms` se almacenan para un posible rechazo relacionado con eventos, aunque la implementación actual utiliza únicamente umbrales globales de amplitud sobre todo el segmento.
+               V_k ← { c ∈ C_used :
+                       min_n(E_bl[c,n,k]) < A_min
+                       or
+                       max_n(E_bl[c,n,k]) > A_max }
 
-Formalmente, sea
+           else
 
-```math
-\mathbf{E}^{\mathrm{bl}} \in \mathbb{R}^{C \times L \times K}
-```
+               V_k ← ∅
 
-el EEG segmentado y corregido por baseline (canales × muestras × segmentos), y sea
+           end
 
-```math
-\mathcal{C}_{\mathrm{used}} = \{1,\dots,N_{\mathrm{used}}\}
-```
+       end
+       ```
 
-el conjunto de índices de canales que se inspeccionan.
+    4. Identificación de segmentos válidos
 
-Para el segmento
+       ```text
+       good_indices ← { k : segment_is_good[k] = true }
+       ```
 
-```math
-k
-```
+    5. Construcción de la hipermatriz filtrada
 
-los datos inspeccionados son
+       ```text
+       E_AR ← E_bl[:,:,good_indices]
+       ```
 
-```math
-\mathbf{E}^{\mathrm{bl}}[\mathcal{C}_{\mathrm{used}}, :, k]
-```
+    **Salida:**  
+    `E_AR` (EEG con segmentos artefactuales eliminados)  
+    `segment_is_good` (vector booleano por segmento)  
+    estadísticas por segmento y listas de canales que violan los umbrales
 
-Se definen
+!!! info "Pipeline Fase 5: Rechazo de artefactos"
 
-```math
-m_k = \min_{c \in \mathcal{C}_{\mathrm{used}},\, 1 \le n \le L} E^{\mathrm{bl}}_{c,n,k}
-```
+    **Objetivo.**
+    - Aplicar un criterio conservador basado en amplitud para descartar segmentos con artefactos evidentes.
+    - Detectar saturaciones o ráfagas EMG extremas que puedan contaminar el análisis.
+    - Conservar únicamente los segmentos limpios de EEG en reposo para los análisis posteriores de conectividad y espectro.
 
-y
+    **Entrada.**
+    - EEG segmentado y corregido por baseline (Fase 4):  
+      `data/baseline/dict_1st_baseline_correction.bin`, que contiene:
+        - `eeg_baseline_corrected` (hipermatriz \(C \times L \times K\))
+        - `channels`
+        - `fs`
+        - `segment_length_samples`
+        - `n_segments`
+        - `n_channels`
 
-```math
-M_k = \max_{c \in \mathcal{C}_{\mathrm{used}},\, 1 \le n \le L} E^{\mathrm{bl}}_{c,n,k}
-```
+    - Configuración de rechazo de artefactos:
 
-El segmento se marca como inválido si
+      ```math
+      N_{\mathrm{used}} = 30
+      ```
 
-```math
-m_k < A_{\min} \quad \text{o} \quad M_k > A_{\max}
-```
+      canales inspeccionados.
 
-En caso contrario, se conserva.
+      ```math
+      A_{\min} = -70\,\mu\text{V}, \quad A_{\max} = +70\,\mu\text{V}
+      ```
 
-La tasa de rechazo se define como
+      Umbrales de amplitud.
 
-```math
-\mathrm{rate} = \frac{K - K_{\mathrm{AR}}}{K}
-```
+      Los parámetros `before_event_ms` y `after_event_ms` se almacenan para posible uso futuro, pero no se aplican en esta implementación.
 
-donde
+    **Salida.**
+    - `data/artifact_rejection/eeg_artifact_rejected.bin`: hipermatriz filtrada con solo segmentos válidos
 
-```math
-K_{\mathrm{AR}}
-```
+      ```math
+      C \times L \times K_{\mathrm{good}}
+      ```
 
-es el número de segmentos retenidos. Esta magnitud sirve como métrica de calidad (por ejemplo, reportada en `artifact_rejection_statistics.csv`).
+    - `data/artifact_rejection/dict_artifact_rejection.bin`: diccionario con:
+        - hipermatriz original y filtrada
+        - lista de canales
+        - umbrales de amplitud
+        - índices de segmentos válidos
+        - máscara booleana de segmentos buenos
+        - conteos por segmento
 
-Con fines diagnósticos, también se registra el conjunto de canales que violan los umbrales:
+    - `data/artifact_rejection/artifact_rejection_statistics.csv`: estadísticas por segmento (mínimos, máximos, flags y canales que violan los umbrales).
 
-```math
-\mathcal{V}_k =
-\{c \in \mathcal{C}_{\mathrm{used}} :
-\min_n E^{\mathrm{bl}}_{c,n,k} < A_{\min}
-\ \text{o} \
-\max_n E^{\mathrm{bl}}_{c,n,k} > A_{\max}\}
-```
+    **Pasos de procesamiento (alineados con `src/artifact_rejection.jl`).**
 
-La hipermatriz filtrada
+    1. **Carga de datos.**  
+       Cargar `dict_1st_baseline_correction.bin` y extraer:
 
-```math
-\mathbf{E}^{\mathrm{AR}}
-```
+       - `eeg_baseline_corrected`
+       - `channels`
+       - `fs`
+       - `segment_length_samples`
+       - `n_segments`
+       - `n_channels`
 
-se construye concatenando únicamente los segmentos válidos.
+    2. **Configuración de parámetros.**  
+       Definir:
 
-El Algoritmo 3 resume el procedimiento; la Tabla 3 y el cuadro inferior formalizan la Fase 5 del pipeline.
-"
+       ```math
+       N_{\mathrm{used}},\; A_{\min},\; A_{\max}
+       ```
+
+       Calcular equivalentes en muestras para `before_event_ms` y `after_event_ms` (para uso futuro).  
+       Seleccionar `channels_used` como los primeros
+
+       ```math
+       N_{\mathrm{used}}
+       ```
+
+       canales.
+
+    3. **Detección de artefactos.**  
+       Para cada segmento \(k\):
+
+       - calcular
+
+       ```math
+       m_k = \min(E_{c,n,k})
+       ```
+
+       ```math
+       M_k = \max(E_{c,n,k})
+       ```
+
+       considerando únicamente `channels_used`.
+
+       El segmento se marca como inválido si
+
+       ```math
+       m_k < A_{\min} \quad \text{o} \quad M_k > A_{\max}
+       ```
+
+       Registrar los canales que violan los umbrales.
+
+    4. **Cálculo de estadísticas.**  
+       Construir un `DataFrame` con:
+
+       - amplitud mínima por segmento  
+       - amplitud máxima por segmento  
+       - flag de segmento válido/inválido  
+       - canales que superan los umbrales  
+
+       Calcular también:
+
+       - número de segmentos conservados  
+       - número de segmentos rechazados  
+       - porcentaje de rechazo  
+       - mínimos y máximos globales.
+
+    5. **Filtrado de segmentos.**  
+       Construir `good_segment_indices` a partir de `segment_is_good`.
+
+       Crear la hipermatriz filtrada:
+
+       ```math
+       \mathbf{E}^{\mathrm{AR}}
+       ```
+
+       seleccionando únicamente los segmentos válidos a lo largo de la tercera dimensión.
+
+    6. **Visualización (opcional).**  
+       Generar:
+
+       - gráficos de segmentos de ejemplo con umbrales superpuestos  
+       - histogramas de amplitudes máximas y mínimas por segmento con los umbrales marcados.
+
+    7. **Guardado de resultados.**  
+       - Serializar `eeg_artifact_rejected` en `eeg_artifact_rejected.bin`.
+       - Construir el diccionario `dict_artifact_rejection` con todos los metadatos y guardarlo en `dict_artifact_rejection.bin`.
+       - Exportar las estadísticas a `artifact_rejection_statistics.csv`.
+
+       Los datos resultantes se utilizan como entrada para la **Fase 6: segunda corrección opcional de baseline**.
+"""
 
 # ╔═╡ 13b382df-1a09-4478-81a3-7aa9d4ab62f7
 md"

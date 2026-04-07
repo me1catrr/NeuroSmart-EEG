@@ -335,76 +335,69 @@ ALGORITMO:
 
 # ╔═╡ 04fd2eda-02c4-49b5-ac82-c747a300bdf4
 md"""
-!!! info "Algoritmo FastICA simétrico (implementación en `ICA.jl`)"
+!!! info "Pipeline Fase 2a: Descomposición ICA"
 
-    **Entrada:**  
-    ``X ∈ ℝ^{C × N}`` (**EEG filtrado**),  
-    `k = C`, `max_iter`, `tol`, `a`, `seed`
+    **Objetivo.**
+    - Descomponer el **EEG filtrado** en componentes estadísticamente independientes utilizando **FastICA simétrico**.
+    - Generar las matrices ``S``, ``W_{\text{total}}`` y ``A`` para su posterior evaluación y limpieza de artefactos.
 
-    1. Centrado de los datos
+    **Entrada.**
+    - **EEG filtrado** procedente de la Fase 1: `data/filtering/dict_EEG_Lowpass.bin`
+      (diccionario indexado por canal, ``C \times N`` muestras).
+    - **Frecuencia de muestreo** ``f_s = 500`` Hz.
+    - **Canales** ``C = 32``.
+    - **Número de componentes** ``k = C``.
 
-       ```julia
-       for i = 1 to C
-           Xc[i,:] ← X[i,:] − mean(X[i,:])
-       end
+    **Salida:** (`data/ICA/dict_EEG_ICA.bin`)
+    - ``S`` (ICs × muestras),
+    - ``W_{\text{total}}``,
+    - ``A``, lista de canales,
+    - `max_iter`, `tol`.
+
+    **Pasos de procesamiento (alineados con `src/ICA.jl`).**
+
+    1. **Carga del EEG filtrado.**
+       - Cargar el **EEG** desde `data/filtering/`.
+       - Construir la matriz ``X \in \mathbb{R}^{C \times N}`` (canales × muestras) en un orden fijo de canales (por ejemplo, orden alfabético).
+
+    2. **Centrado de la señal.**
+       Restar la media de cada canal en ``X``.
+
+    3. **Blanqueamiento (*whitening*).**
+       - Calcular la matriz de covarianza de ``X``.
+       - Realizar descomposición en autovalores mediante **PCA** y construir la señal blanqueada ``Z`` con ``k = C`` componentes.
+
+    4. **Algoritmo FastICA.**
+       - Inicializar ``W``.
+       - Aplicar iteraciones hasta convergencia:
+           - Proyectar ``Y = WZ``.
+           - Aplicar la función de contraste `tanh`.
+           - Actualizar ``W`` con decorrelación simétrica.
+
+       El proceso se repite hasta que
+
+       ```math
+       \max_i \left|1 - |M_{ii}|\right| < \text{tol} = 10^{-7}
        ```
 
-    2. Blanqueamiento (**whitening**)
+       o hasta alcanzar el número máximo de iteraciones ``\mathrm{max_iter} = 512``.
 
-       ```text
-       Cx ← (1/N) · Xc · Xcᵀ
-       [E, Λ] ← eig(Cx)
-       Z ← Λ^{-1/2} · Eᵀ · Xc      (usar k componentes)
+    5. **Resultados.**
+       Calcular:
+
+       ```math
+       S = WZ
        ```
 
-    3. Inicialización de la matriz de separación
-
-       ```julia
-       set random seed
-       W ← randn(k,k)
-       W ← sym_decorrelation(W)
+       ```math
+       W_{\text{total}} = W \cdot V_{\text{whit}}
        ```
 
-    4. Iteración principal (**FastICA simétrico**)
-
-       ```julia
-       for iter = 1 to max_iter
-
-           Y  ← W · Z
-
-           GY ← tanh(a · Y)
-           G' ← a · (1 − tanh(a · Y)^2)
-
-           D  ← diag(mean(G', dims=2))
-
-           W_new ← (1/N) · GY · Zᵀ − D · W
-           W_new ← sym_decorrelation(W_new)
-
-           M ← W_new · Wᵀ
-           max_diff ← max_i |1 − |M_ii||
-
-           if max_diff < tol
-               W ← W_new
-               break
-           end
-
-           W ← W_new
-
-       end
+       ```math
+       A = W_{\text{total}}^{-1}
        ```
 
-    5. Reconstrucción de componentes independientes
-
-       ```julia
-       S        ← W · Z
-       W_total  ← W · V_whit
-       A        ← inv(W_total)
-       ```
-
-    **Salida:**  
-    - `S` (componentes independientes),  
-    - `W_total` (matriz de separación total),  
-    - `A` (matriz de mezcla).
+       Serializar los resultados en `data/ICA/dict_EEG_ICA.bin`.
 """
 
 # ╔═╡ 62db513e-efef-4f65-898e-4d1283e3c55a

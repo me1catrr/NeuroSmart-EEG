@@ -73,6 +73,53 @@ md"
 Se carga el diccionario **EEG** desde el paso de IO (`dict_EEG.bin`) y se configuran las rutas de salida para los datos filtrados.
 "
 
+# ╔═╡ 6337d051-3f9e-4dd9-9925-30b188eb6ac0
+md"""
+!!! info "Pipeline Fase 1: Preprocesamiento"
+
+    **Objetivo:**
+    - Eliminar interferencias de red eléctrica y del hardware, deriva lenta y ruido fuera de banda del **EEG crudo** generado en la **Fase 0**.
+    - Almacenar las señales filtradas para análisis posteriores específicos por banda.
+
+    **Entrada.**
+    - **EEG** serializado procedente de la **Fase** ``0`` (por ejemplo, `data/IO/dict_EEG.bin`).
+    - Frecuencia de muestreo ``f_s = 500`` Hz.
+
+    **Salida.**
+    - Señales filtradas almacenadas en `data/filtering/` tras cada etapa (Notch, Bandreject, Highpass, Lowpass).
+    - Gráficas de respuesta del **filtro** (magnitud y fase) y comparaciones de **PSD promedio** (antes/después de cada etapa) para control de calidad.
+
+    **Pasos de procesamiento (alineados con `src/filtering.jl`).**
+
+    1. **Carga de datos EEG.**  
+       Cargar el diccionario EEG desde `data/IO/`; definir ``f_s`` y la lista de canales.
+
+    2. **Filtro Notch 50 Hz.**  
+       Aplicar un filtro Butterworth *bandstop* (orden 4, ancho 1 Hz).  
+       Guardar `dict_EEG_Notch.bin`.  
+       Representar la respuesta del filtro y comparar la PSD promedio (señal original vs señal con notch).
+
+    3. **Rechazo de banda 100 Hz.**  
+       Aplicar un filtro Butterworth *bandstop* (orden 4, ancho de banda 1 Hz) sobre la salida del notch.  
+       Guardar `dict_EEG_Bandreject.bin`.  
+       Representar la respuesta del filtro y comparar PSD.
+
+    4. **Filtro paso alto 0.5 Hz.**  
+       Aplicar un filtro Butterworth *high-pass* (orden 4, `filtfilt`).  
+       Guardar `dict_EEG_Highpass.bin`.  
+       Representar la respuesta del filtro y comparar PSD.
+
+    5. **Filtro paso bajo 150 Hz.**  
+       Aplicar un filtro Butterworth *low-pass* (orden 4, `filtfilt`).  
+       Guardar `dict_EEG_Lowpass.bin`.  
+       Representar la respuesta del filtro y comparar PSD.
+
+    6. **Salida del preprocesamiento.**  
+       Devolver el diccionario completamente filtrado (o la ruta a `dict_EEG_Lowpass.bin`) para la **Fase 2a (ICA)**.
+
+    Opcionalmente, el re-referenciado, la eliminación de artefactos y la segmentación en épocas pueden realizarse en un paso separado antes del cálculo de conectividad.
+"""
+
 # ╔═╡ b1a100f5-2f4f-4d30-b4c4-1dca20c50e04
 begin
 # -----------------------------------------------------------------------------------
@@ -2156,6 +2203,7 @@ version = "1.13.0+0"
 # ╠═e857112f-df27-4f7f-bcc7-34421e0c3103
 # ╠═e456bde5-04a7-4db8-a5d4-cf2068dfe29b
 # ╠═204da7a3-9f60-4918-97f4-06a2d621dc15
+# ╟─6337d051-3f9e-4dd9-9925-30b188eb6ac0
 # ╠═a4097250-6b5a-4415-8469-e2a8dab637ec
 # ╠═b1a100f5-2f4f-4d30-b4c4-1dca20c50e04
 # ╠═aa74685e-d70c-4b92-99c6-9c8f051d387e

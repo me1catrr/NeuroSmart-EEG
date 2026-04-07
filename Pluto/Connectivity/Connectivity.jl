@@ -208,29 +208,112 @@ En conjunto, este pipeline permite realizar una **comparación técnicamente só
 "
 
 # ╔═╡ 931a1212-96b0-410f-b6f1-5a64e8338290
-md"
-# Reducción Conducción volumen (CSD)
+md"""
+!!! info "Algoritmo CSD mediante Laplaciano esférico de Perrin (`CSD.jl`)"
 
-La **conducción de volumen**, del inglés Current Source Density, **(CSD)** en la cabeza dispersa las corrientes de modo que cada electrodo del cuero cabelludo registra una mezcla ponderada de múltiples fuentes. Esto reduce la resolución espacial e incrementa artificialmente la coherencia entre canales cercanos. Para enfatizar la actividad local y mejorar la interpretabilidad de la conectividad, aplicamos una transformación de **CSD** antes de calcular las medidas de conectividad.
+    **Entrada:**  
+    ``E ∈ ℝ^{C × L × K}`` (segmentos EEG),  
+    coordenadas de electrodos `(x_c, y_c, z_c)` desde TSV BIDS,  
+    parámetros `m`, `degree`, `λ`
 
-La **CSD** es un **Laplaciano espacial** que aproxima la segunda derivada del potencial con respecto a la superficie del cuero cabelludo, atenuando las contribuciones debidas a la conducción de volumen y haciendo que la señal sea efectivamente independiente de la referencia.
+    1. Comprobación de consistencia canal–electrodo
 
-La implementación sigue el método de **Perrin et al. (1989)**: interpolación mediante *spherical splines* sobre la esfera unitaria, expansión en polinomios de Legendre para el núcleo del spline y un operador Laplaciano regularizado equivalente al utilizado en **BrainVision Analyzer**.
+       ```text
+       load electrode TSV
 
-La rutina `src/Connectivity/CSD.jl`:
+       keep rows where type = EEG
 
-- carga los segmentos ya corregidos por línea base
-- carga las posiciones de los electrodos (BIDS `.tsv`)
-- verifica la consistencia entre canales y electrodos
-- construye el operador de Perrin **L**
-- aplica la transformación **CSD** por cada instante temporal y para cada segmento
+       if any EEG channel missing in TSV
+           abort "Channel without electrode position"
+       end
 
-La transformación se define como
+       reorder electrode rows to match order of channels in E
+       ```
 
-```math
-E_{CSD} = L E
-```
-"
+    2. Normalización de posiciones en la esfera unitaria
+
+       ```text
+       for c = 1 to C
+
+           r_c ← sqrt(x_c² + y_c² + z_c²)
+
+           R_c ← (x_c / r_c, y_c / r_c, z_c / r_c)
+
+       end
+       ```
+
+    3. Precomputación de coeficientes de Legendre
+
+       ```text
+       for k = 1 to degree
+
+           c_g[k] ← (2k + 1) / (k^m · (k + 1)^m)
+
+           c_h[k] ← (2k + 1) / (k^(m−1) · (k + 1)^(m−1))
+
+       end
+       ```
+
+    4. Construcción de las matrices G y H (simétricas)
+
+       ```text
+       for i = 1 to C
+
+           G[i,i] ← Σ_k c_g[k]
+           H[i,i] ← Σ_k c_h[k]
+
+           for j = i+1 to C
+
+               cosγ ← R_i · R_j
+               clamp cosγ to [−1, 1]
+
+               G[i,j] ← Σ_k c_g[k] · P_k(cosγ)
+               G[j,i] ← G[i,j]
+
+               H[i,j] ← Σ_k c_h[k] · P_k(cosγ)
+               H[j,i] ← H[i,j]
+
+           end
+
+       end
+       ```
+
+    5. Regularización y restricción de referencia libre
+
+       ```text
+       G_λ ← G + λ · I
+
+       1_vec ← (1,1,…,1)ᵀ
+
+       C ← G_λ^{-1} − (G_λ^{-1} · 1_vec · 1_vecᵀ · G_λ^{-1})
+                        / (1_vecᵀ · G_λ^{-1} · 1_vec)
+
+       L ← H · C
+       ```
+
+       `L` es el **operador CSD** de dimensión `C × C`.
+
+    6. Aplicación del operador a cada segmento
+
+       ```text
+       for s = 1 to K
+
+           E_CSD[:,:,s] ← L · E[:,:,s]
+
+       end
+       ```
+
+    **Salida:**  
+    `E_CSD` (EEG transformado a densidad de corriente),  
+
+    archivos guardados:
+
+    - `data/CSD/eeg_csd.bin`  
+    - `data/CSD/dict_csd.bin`
+
+    opcionalmente: controles de calidad  
+    (RMS por canal, topografías CSD).
+"""
 
 # ╔═╡ c89eb2b5-7d90-41d5-8424-bb97da99dd7c
 md"
@@ -357,45 +440,117 @@ A_x(t) = |\mathcal{H}\{x(t)\}|
 "
 
 # ╔═╡ 5a67824c-4e62-45c4-83ad-54bcdbcc3acb
-md"
-## Weighted Phase Lag Index (wPLI)
+md"""
+!!! info "Algoritmo Cálculo de wPLI por banda"
 
-La conectividad funcional basada en fase se estima utilizando el **Weighted Phase Lag Index (wPLI)**, que enfatiza relaciones de fase consistentes distintas de cero entre señales y reduce el peso de las contribuciones de **fase cero**, que probablemente se deben a **conducción de volumen**.  
+    **Entrada:** ``E_{CSD} \in \mathbb{R}^{(C \times L \times K)}``, banda `(f1,f2)`, `fs`
 
-Para cada banda de frecuencia, las señales se filtran mediante **band-pass** y se transforman en representaciones analíticas mediante la **transformada de Hilbert**. Posteriormente, el wPLI se calcula agregando todos los samples de los segmentos (estilo BrainVision Analyzer, *across segments*).
+    1. Precalcular señales analíticas por canal
 
----
+       ```text
+       for c = 1 to C
+           for s = 1 to K
+               x        ← E_CSD[c,:,s]
+               x_f      ← bandpass_filtfilt(x, fs, f1, f2; order=8)
+               Z_c[:,s] ← analytic_signal(x_f)
+           end
+       end
+       ```
 
-**Definición formal.**  
-Sea ``S_{xy}(t) = z_i(t)\,\overline{z_j(t)}`` el **cross-spectrum** en el instante ``t`` entre las señales analíticas ``z_i`` y ``z_j`` de los canales ``i`` y ``j``. El wPLI se define como
+    2. Construir matriz simétrica de wPLI
 
-```math
-\mathrm{wPLI}_{ij} =
-\frac{\left|\mathbb{E}\left[\mathrm{Im}(S_{xy})\right]\right|}
-{\mathbb{E}\left[|\mathrm{Im}(S_{xy})|\right] + \epsilon}
-=
-\frac{\left|\mathbb{E}\left[\mathrm{sign}(\mathrm{Im}_{ij}(t))\cdot|\mathrm{Im}_{ij}(t)|\right]\right|}
-{\mathbb{E}\left[|\mathrm{Im}_{ij}(t)|\right] + \epsilon}
-```
+       ```text
+       for i = 1 to C
+           for j = i+1 to C
+               Im_ij  ← Im(Z_i ⊙ conj(Z_j))
+               num    ← |Σ Im_ij|
+               den    ← Σ |Im_ij| + ε
+               W[i,j] ← num / den
+               W[j,i] ← W[i,j]
+           end
+       end
+       ```
 
-donde ``\mathrm{Im}_{ij}(t) = \mathrm{Im}(S_{xy}(t)) = \mathrm{Im}(z_i(t)\overline{z_j(t)})`` y ``\epsilon`` es una pequeña constante para evitar divisiones por cero.  
+    **Salida:** `W` simétrica, diagonal 0
 
-La **esperanza matemática** se calcula sobre todos los samples temporales y segmentos.
+!!! info "Weighted Phase Lag Index (wPLI)"
 
----
+    **Objetivo.** Calcular la conectividad funcional estática específica por banda utilizando wPLI a partir de segmentos transformados mediante CSD, agregando sobre todos los *samples* y segmentos (estilo BrainVision Analyzer), y guardar matrices de conectividad, listas de aristas y mapas de calor por banda.
 
-**¿Por qué solo la parte imaginaria?**  
+    **Entrada**
 
-La **conducción de volumen** y la **referencia común** tienden a introducir acoplamientos de fase cero (*in-phase*), que contribuyen principalmente a la **parte real** de ``S_{xy}``. En cambio, la **parte imaginaria** refleja desfases consistentes entre señales y, por tanto, está menos sesgada por la propagación espacial de corrientes.
+    - Datos CSD: `data/CSD/dict_csd.bin` (`eeg_csd C × L × K`, canales, fs)
+    - Definición de bandas: `data/FFT/dict_FFT_power.bin` o `dict_FFT.bin` (`bands_hz`); en caso de ausencia se utilizan bandas estándar (DELTA, THETA, ALPHA, BETA_LOW, BETA_MID, BETA_HIGH, GAMMA)
 
-En comparación con el **Phase Lag Index (PLI)** clásico, que utiliza únicamente ``\mathrm{sign}(\mathrm{Im}_{ij})``, el **wPLI** pondera cada muestra por ``|\mathrm{Im}_{ij}|``. Esto reduce la sensibilidad a pequeñas diferencias de fase ruidosas y mejora la robustez en muestras pequeñas. Además, resulta más robusto frente a conducción de volumen que la **coherencia** tradicional, ya que atenúa contribuciones de fase cero.
+    **Salida**
 
----
+    - `data/wPLI/dict_wpli.bin`: wpli, bandas, canales, fs, space = CSD  
+    - `results/tables/wPLI/wPLI_{band}_matrix.csv`, `wPLI_{band}_edges.csv`: matriz de conectividad y lista de aristas por banda  
+    - `results/figures/wPLI/wPLI_{band}_heatmap.png`: mapa de calor por banda  
+    - `results/logs/wPLI/wPLI_{timestamp}.log`: registro de ejecución
 
-La matriz de conectividad ``\mathbf{W} \in \mathbb{R}^{C \times C}`` es **simétrica** y tiene **diagonal nula**, con valores en el intervalo ``[0,1]``.
+    ---
 
-Las matrices de conectividad ``(C \times C)``, con ``C = 32`` en este dataset se obtienen para cada banda agregando todos los samples de los segmentos. Las entradas diagonales son cero y la matriz resultante es simétrica.
-"
+    **Pasos de procesamiento** (alineados con `src/Connectivity/wPLI.jl`)
+
+    1. Cargar `dict_csd.bin`.
+
+    2. Cargar la definición de bandas desde `dict_FFT_power.bin` o `dict_FFT.bin`.  
+       Si no existe, usar las bandas estándar: DELTA, THETA, ALPHA, BETA_LOW, BETA_MID, BETA_HIGH, GAMMA.
+
+    3. Para cada banda `b` con rango `(f₁, f₂)`:
+
+       **(a) Señales analíticas por canal**
+
+       ```text
+       for c = 1:C
+           for s = 1:K
+               x        ← eeg_csd[c,:,s]
+               x_f      ← bandpass_filtfilt(x, fs, f1, f2; order=8)
+               Z_c[:,s] ← analytic_signal(x_f)
+           end
+       end
+       ```
+
+       donde `Z_c ∈ ℂ^{L×K}`.
+
+       **(b) Cálculo de wPLI por pares de canales**
+
+       ```text
+       for i = 1:C
+           for j = i+1:C
+               Im_ij = Im(Z_i ⊙ conj(Z_j))
+               num   = |Σ Im_ij|
+               den   = Σ |Im_ij| + ε
+               W[i,j] = num / den
+               W[j,i] = W[i,j]
+           end
+       end
+       ```
+
+       Matemáticamente:
+
+       ```math
+       \mathrm{wPLI}_{ij} =
+       \frac{\left|\sum \mathrm{Im}_{ij}\right|}
+            {\sum |\mathrm{Im}_{ij}| + \epsilon}
+       ```
+
+       **(c) Guardado de resultados**
+
+       - Guardar matriz de conectividad CSV (`wPLI_{band}_matrix.csv`)
+       - Guardar lista de aristas CSV (`from, to, wpli`)
+       - Generar mapa de calor (`wPLI_{band}_heatmap.png`)
+
+    4. Guardar `dict_wpli.bin` con resultados y metadatos.
+
+    5. Ejecutar verificación:
+
+       - valores en rango `[0,1]`
+       - matriz simétrica
+       - diagonal `0`
+       - ausencia de `NaN` o `Inf`
+"""
 
 # ╔═╡ c970cf66-ae42-403f-aec5-82f6dbb63068
 md"""

@@ -35,53 +35,325 @@ md"""
 notebook_intro("ANALISIS ESPECTRAL")
 
 # ╔═╡ 6d99bf9e-31ad-11f1-a7ea-91a7169a4b7a
-md"
-# Intro
+md"""
+!!! info "Algoritmo Análisis espectral mediante FFT (`FFT.jl`)"
 
-Tras la segunda corrección de baseline opcional (Fase 6), el EEG segmentado se utiliza para estimar espectros de potencia en el dominio de la frecuencia.
+    **Entrada:**  
+    ``E_bl2 ∈ ℝ^{C × L × K}`` (segmentos con segunda corrección de baseline),  
+    `F_s`, `N_fft = 512`,  
+    parámetros de ventana (`P = 0.10`, Hamming `α = 0.54`, `β = 0.46`)
 
-La rutina `src/FFT.jl` implementa un pipeline espectral compatible con BrainVision Analyzer (BVA): carga los datos desde `data/baseline/dict_2nd_baseline_correction.bin` (canales × muestras × segmentos), elimina el desplazamiento DC por segmento y canal (estilo BVA, antes del ventaneo), aplica una atenuación basada en ventana de Hamming (Tukey con longitud de ventana del 10 %), y posteriormente aplica zero-padding hasta
+    1. Eliminación del componente DC
 
-```math
-N_{\mathrm{fft}} = 512
-```
+       ```text
+       for c = 1 to C
+           for k = 1 to K
 
-puntos para obtener una resolución en frecuencia
+               μ_ck ← mean(E_bl2[c,:,k])
 
-```math
-\Delta f = \frac{F_s}{N_{\mathrm{fft}}} \approx 0.976\,\text{Hz}
-```
+               E_dc[c,:,k] ← E_bl2[c,:,k] − μ_ck
 
-Se calcula la FFT real (rFFT); el componente DC se reintroduce en el bin de
+               store μ_ck for later DC reintroduction
 
-```math
-0\,\text{Hz}
-```
+           end
+       end
+       ```
 
-La corrección de varianza (división por
+    2. Aplicación de ventana
 
-```math
-\overline{w^2}
-```
+       ```text
+       build taper window w[n]
+           (Tukey/Hamming with length P · L at both ends)
 
-, la media del cuadrado de la ventana) y el plegado del espectro completo (“Use Full Spectrum”: duplicar los bins interiores y normalizar por
+       w2_mean ← mean(w^2)
 
-```math
-N_{\mathrm{fft}}^2
-```
+       for c = 1 to C
+           for k = 1 to K
+               E_win[c,:,k] ← E_dc[c,:,k] ⊙ w
+           end
+       end
+       ```
 
-) producen la potencia por bin en
+    3. Zero-padding
 
-```math
-\mu\text{V}^2
-```
+       ```text
+       allocate E_pad ∈ ℝ^{C × N_fft × K}
 
-La potencia específica por banda se obtiene promediando los bins cuya frecuencia central cae dentro de cada banda (Delta, Theta, Alpha, Beta Low/Mid/High, Gamma).
+       E_pad[:,1:L,:] ← E_win
+       remaining samples ← 0
 
-Los resultados se promedian entre segmentos para cada canal y se guardan para su uso en gráficos y en los flujos de trabajo de conectividad.
+       Δf ← F_s / N_fft
+       n_bins ← N_fft/2 + 1
+       ```
 
-El Algoritmo 4, la Tabla 4, la Tabla 5 y el cuadro inferior resumen este paso del pipeline.
-"
+    4. Cálculo de la rFFT
+
+       ```text
+       for c = 1 to C
+           for k = 1 to K
+               X[c,:,k] ← rFFT(E_pad[c,:,k])
+           end
+       end
+       ```
+
+    5. Reintroducción del componente DC
+
+       ```text
+       X[c,1,k] ← X[c,1,k] + μ_ck · N_fft
+       ```
+
+    6. Cálculo de potencia espectral
+
+       ```text
+       P[c,:,k] ← |X[c,:,k]|^2
+
+       P[c,:,k] ← P[c,:,k] / w2_mean
+
+       P[c,2:n_bins−1,k] ← 2 · P[c,2:n_bins−1,k]
+
+       P[c,:,k] ← P[c,:,k] / N_fft^2
+       ```
+
+    7. Cálculo de potencia por bandas de frecuencia
+
+       ```text
+       for each frequency band b with range [f_min, f_max)
+
+           I_b ← {ℓ : f_ℓ ∈ [f_min, f_max)}
+
+           band_power[c,b] ← mean(P[c,I_b,:])
+
+       end
+       ```
+
+    8. Promediado entre segmentos
+
+       ```text
+       P_mean ← mean(P, segments)
+       ```
+
+    **Salida:**  
+    `P` (potencia por bin de frecuencia)  
+    `P_mean` (potencia media por canal)  
+    potencia por bandas de frecuencia  
+
+    además de los archivos:
+
+    - `data/FFT/dict_FFT.bin`  
+    - `data/FFT/dict_FFT_power.bin`  
+    - figuras y tablas generadas del análisis espectral
+
+!!! info "Pipeline Fase 7: Análisis espectral (FFT)"
+
+    **Objetivo.**
+    - Estimar el espectro de potencia del EEG segmentado (tras la Fase 6) siguiendo un procedimiento compatible con BrainVision Analyzer (BVA).
+    - Aplicar eliminación de DC, ventana tipo Hamming, zero-padding a 512 puntos, rFFT, corrección de varianza y normalización de potencia.
+    - Calcular la potencia media por canal y la potencia por bandas de frecuencia para su análisis y visualización.
+
+    **Entrada.**
+    - EEG segmentado con segunda corrección de baseline:  
+      `data/baseline/dict_2nd_baseline_correction.bin`, que contiene:
+        - `eeg_2nd_baseline_corrected` (hipermatriz \(C \times L \times K\))
+        - `channels`
+        - `fs`
+        - `segment_length_samples`
+        - `n_segments`
+        - `n_channels`
+
+    **Salida.**
+    - `data/FFT/dict_FFT.bin`: datos intermedios del cálculo espectral:
+        - segmentos con ventana aplicada
+        - zero-padding
+        - ventana utilizada
+        - valor medio de la ventana
+
+          ```math
+          \overline{w^2}
+          ```
+
+        - valores DC
+        - vectores de frecuencia
+        - tamaño FFT
+
+          ```math
+          N_{\mathrm{fft}}
+          ```
+
+        - resolución espectral
+
+          ```math
+          \Delta f
+          ```
+
+    - `data/FFT/dict_FFT_power.bin`: resultados espectrales:
+        - potencia espectral
+
+          ```math
+          P
+          ```
+
+        - `P_mean`
+        - `power_by_band`
+        - `band_idx`
+        - `freqs_bva`
+        - definiciones de bandas
+
+    - `results/figures/FFT/`: figuras generadas:
+        - ventana Hamming
+        - efecto del windowing
+        - ejemplo de zero-padding
+        - espectro FFT
+        - espectro de potencia
+        - rejilla de espectros por canal
+        - espectro estilo BVA
+        - topografía de potencia (por ejemplo banda alfa)
+
+    - `results/tables/FFT/`:
+        - `channel_summary.csv`
+        - `power_by_band.csv`
+
+    **Pasos de procesamiento (alineados con `src/FFT.jl`).**
+
+    1. **Carga de datos.**  
+       Cargar `dict_2nd_baseline_correction.bin` y extraer:
+
+       - EEG segmentado
+       - `channels`
+       - frecuencia de muestreo
+
+       ```math
+       F_s
+       ```
+
+       - número de muestras por segmento
+
+       ```math
+       L
+       ```
+
+       - número de segmentos
+
+       ```math
+       K
+       ```
+
+    2. **Eliminación de DC (estilo BVA).**  
+       Para cada canal y segmento, restar la media del segmento.  
+       Guardar los valores DC para su posterior reintroducción en el bin de frecuencia
+
+       ```math
+       0\,\text{Hz}
+       ```
+
+    3. **Aplicación de ventana.**  
+       Construir una ventana tipo **Hamming** (Tukey con longitud de ventana del 10%).  
+       Calcular
+
+       ```math
+       \overline{w^2}
+       ```
+
+       y aplicar la ventana a los segmentos sin DC.
+
+    4. **Zero-padding.**  
+       Extender cada segmento hasta
+
+       ```math
+       N_{\mathrm{fft}} = 512
+       ```
+
+       muestras.
+
+       La resolución espectral resultante es
+
+       ```math
+       \Delta f = \frac{F_s}{N_{\mathrm{fft}}}
+       ```
+
+       Definir los bins de frecuencia desde
+
+       ```math
+       0
+       ```
+
+       hasta la frecuencia de Nyquist.
+
+    5. **Cálculo de FFT y potencia.**  
+       Calcular la **FFT real (rFFT)** de cada segmento.  
+       Reintroducir el valor DC en el primer bin.
+
+       Calcular la potencia espectral:
+
+       ```math
+       P = |X|^2
+       ```
+
+       Aplicar:
+
+       - corrección de varianza
+
+         ```math
+         P \leftarrow P / \overline{w^2}
+         ```
+
+       - plegado del espectro completo (duplicar bins interiores)
+       - normalización
+
+         ```math
+         P \leftarrow P / N_{\mathrm{fft}}^2
+         ```
+
+       La unidad final de potencia es
+
+       ```math
+       \mu\text{V}^2
+       ```
+
+    6. **Cálculo por bandas de frecuencia.**  
+       Definir bandas:
+
+       - Delta
+       - Theta
+       - Alpha
+       - Beta (Low / Mid / High)
+       - Gamma
+
+       Para cada banda, promediar la potencia de los bins dentro del rango correspondiente y calcular `power_by_band`.
+
+    7. **Promediado entre segmentos.**  
+       Calcular la potencia media:
+
+       ```math
+       P_{\mathrm{mean}} = \mathrm{mean}(P, \text{segmentos})
+       ```
+
+       Opcionalmente calcular SNR (media / desviación estándar entre segmentos).
+
+       Guardar resultados en:
+
+       - `channel_summary.csv`
+       - `power_by_band.csv`
+
+    8. **Visualización.**  
+       Generar figuras como:
+
+       - forma de la ventana
+       - ejemplo de señal con ventana aplicada
+       - ejemplo de zero-padding
+       - magnitud FFT
+       - espectro de potencia (por ejemplo canal Oz)
+       - espectros por canal en rejilla
+       - espectro estilo BrainVision Analyzer
+       - topografía de potencia alfa
+
+       Guardar en `results/figures/FFT/`.
+
+    9. **Guardado final.**  
+       Serializar:
+
+       - `dict_FFT.bin`
+       - `dict_FFT_power.bin`
+"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
