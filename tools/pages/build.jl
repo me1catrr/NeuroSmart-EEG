@@ -34,7 +34,7 @@ const MODULES = [
     ),
     (
         name = "ICA",
-        source = "Pluto/Processing/ICA.jl",
+        source = "Pluto/ICA/ICA.jl",
         target = "docs/Pluto/ICA/index.html",
         description = "Separacion de componentes independientes para limpieza EEG",
     ),

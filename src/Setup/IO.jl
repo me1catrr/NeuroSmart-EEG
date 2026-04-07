@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 # -*- coding: utf-8 -*-
-# src/IO.jl
+# src/Setup/IO.jl
 #
 # CARGA Y PREPROCESAMIENTO INICIAL DE DATOS EEG
 # ==============================================

@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 # -*- coding: utf-8 -*-
-# src/ICA.jl
+# src/ICA/ICA.jl
 #
 # DESCOMPOSICIÓN ICA (Independent Component Analysis) usando FastICA
 # ===================================================================
@@ -59,7 +59,7 @@ path_dict_lowpass = joinpath(dir_filtering, "dict_EEG_Lowpass.bin")
 
 # Verificamos que el resultado del filtrado esté disponible
 if !isfile(path_dict_lowpass)
-    error("No se encontró $(abspath(path_dict_lowpass)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin.")
+    error("No se encontró $(abspath(path_dict_lowpass)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin (y src/Setup/IO.jl si parte desde cero).")
 end
 
 # Cargar diccionario con señales por canal

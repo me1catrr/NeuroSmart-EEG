@@ -47,8 +47,23 @@ EEG_Julia/
 ├── config/
 │   └── default_config.jl     # Configuración tipada del pipeline (PipelineConfig)
 ├── Pluto/
-│   ├── EEG_Pipeline.jl       # Notebook Pluto (pipeline completo interactivo)
-│   └── Notebook.jl           # Notebook auxiliar
+│   ├── Setup/
+│   │   └── Project_Setup.jl
+│   ├── BIDS/
+│   │   └── BIDS.jl
+│   ├── Preprocessing/
+│   │   └── Preprocessing.jl
+│   ├── ICA/
+│   │   └── ICA.jl
+│   ├── Processing/
+│   │   └── Processing.jl
+│   ├── Spectral/
+│   │   └── Spectral.jl
+│   ├── Connectivity/
+│   │   └── Connectivity.jl
+│   ├── Surrogate/
+│   │   └── Surrogate.jl
+│   └── Notebook.jl           # Notebook índice/auxiliar
 ├── script/
 │   └── EEG.jl                # Punto de entrada (pipeline completo, secuencial)
 ├── src/
@@ -56,28 +71,33 @@ EEG_Julia/
 │   │   ├── build_participants.jl
 │   │   ├── build_eeg_bids.jl
 │   │   └── validate_bids.jl
+│   ├── Setup/
+│   │   └── IO.jl
 │   ├── Preprocessing/
-│   │   ├── IO.jl             # Carga inicial/preprocesamiento de datos EEG
 │   │   └── filtering.jl      # Filtrado (notch, bandreject, highpass, lowpass)
-│   ├── Processing/
+│   ├── ICA/
 │   │   ├── ICA.jl
-│   │   ├── ICA_cleaning.jl
+│   │   └── ICA_cleaning.jl
+│   ├── Processing/
 │   │   ├── segmentation.jl
 │   │   ├── baseline.jl
 │   │   ├── artifact_rejection.jl
-│   │   ├── baseline_2st.jl
+│   │   └── baseline_2st.jl
+│   ├── Spectral/
 │   │   └── FFT.jl
 │   ├── Connectivity/
-│       ├── CSD.jl            # Current Source Density (spline esférico Perrin)
-│       └── wPLI.jl           # Weighted Phase Lag Index por bandas
+│   │   ├── CSD.jl            # Current Source Density (spline esférico Perrin)
+│   │   └── wPLI.jl           # Weighted Phase Lag Index por bandas
+│   ├── Surrogate/
+│   │   └── Surrogate.jl
 │   └── modules/
 │       ├── EEG_Julia.jl      # Módulo principal: incluye etapas + exporta `run_*`
 │       ├── paths.jl          # Utilidades de rutas (project_root, stage_dir, etc.)
 │       └── utils.jl          # Utilidades comunes (logs, binarios, limpieza)
 ├── data/
-│   ├── raw/                          # Entrada principal EEG (TSV/derivados iniciales)
-│   ├── electrodes/                   # Posiciones de electrodos (TSV)
-│   ├── BIDS/                         # Salidas de conversión/validación BIDS
+│   ├── BIDS/
+│   │   ├── raw/                      # Entrada principal EEG (TSV)
+│   │   └── electrodes/               # Posiciones de electrodos (TSV)
 │   ├── Preprocessing/
 │   │   ├── IO/                       # Salida de carga inicial
 │   │   └── filtering/                # Salidas de filtrado
@@ -122,7 +142,7 @@ Por tratarse de un proyecto de **EEG/medicina**, este repositorio **NO incluye**
 - **No se suben a Git**: `data/`, `results/`, `Javier_results/`
 - **Qué sí se sube**: código (`src/`, `script/`), configuración (`config/`), notebooks (`Pluto/`) y documentación.
 
-Para ejecutar el pipeline necesitarás proporcionar tus propios archivos de entrada en `data/raw/` (y, si aplica, `data/electrodes/`) en tu entorno local.
+Para ejecutar el pipeline necesitarás proporcionar tus propios archivos de entrada en `data/BIDS/raw/` (y, si aplica, `data/BIDS/electrodes/`) en tu entorno local.
 
 ## Publicación en GitHub Pages
 
@@ -136,7 +156,7 @@ La carpeta `docs/` se mantiene porque se publica en GitHub Pages.
 
 El procesamiento sigue un orden secuencial; cada etapa lee la salida de la anterior. El módulo `src/modules/EEG_Julia.jl` expone funciones de alto nivel `run_*` para ejecutar etapas individualmente (REPL/Pluto) o en un flujo completo (vía `script/EEG.jl`).
 
-Antes del pipeline principal, el proyecto incluye utilidades en `src/BIDS/` para convertir datos originales de BrainVision a una estructura BIDS (`build_participants.jl`, `build_eeg_bids.jl`, `validate_bids.jl`).
+Antes del pipeline principal, el proyecto incluye utilidades en `src/BIDS/` para convertir datos originales de BrainVision a una estructura BIDS (`build_participants.jl`, `build_eeg_bids.jl`, `validate_bids.jl`). La etapa de carga inicial está en `src/Setup/IO.jl` y corresponde al notebook `Pluto/Setup/Project_Setup.jl`.
 
 1. **BIDS (preparación opcional)**: Conversión/validación desde BrainVision hacia estructura BIDS.
 2. **IO**: Carga TSV raw, organiza canales (diccionario), PSD, calidad de canales.
@@ -151,7 +171,26 @@ Antes del pipeline principal, el proyecto incluye utilidades en `src/BIDS/` para
 11. **CSD**: Current Source Density (Laplaciano esférico Perrin) sobre datos segmentados.
 12. **wPLI**: Conectividad wPLI por bandas de frecuencia (entrada: datos CSD).
 
-Los datos intermedios se guardan en `data/` (p. ej. `.bin` serializados); figuras y tablas en `results/figures/` y `results/tables/`.
+Los datos intermedios se guardan en `data/` (p. ej. `.bin` serializados); figuras y tablas se guardan por fase en `results/<Fase>/figures/` y `results/<Fase>/tables/`.
+
+## Entradas y salidas por rutina
+
+Referencias de I/O revisadas según la estructura actual de `src/`:
+
+- `src/BIDS/build_participants.jl`: genera/actualiza `participants.tsv` en `data/BIDS/`.
+- `src/BIDS/build_eeg_bids.jl`: construye estructura BIDS dentro de `data/BIDS/`.
+- `src/BIDS/validate_bids.jl`: valida el dataset en `data/BIDS/`.
+- `src/Setup/IO.jl`: entrada `data/BIDS/raw/*.tsv`; salida `data/Preprocessing/IO/dict_EEG.bin`.
+- `src/Preprocessing/filtering.jl`: entrada `data/Preprocessing/IO/dict_EEG.bin`; salida `data/Preprocessing/filtering/dict_EEG_{Notch,Bandreject,Highpass,Lowpass}.bin`.
+- `src/ICA/ICA.jl`: entrada `data/Preprocessing/filtering/dict_EEG_Lowpass.bin`; salida `data/Processing/ICA/dict_EEG_ICA.bin`.
+- `src/ICA/ICA_cleaning.jl`: entradas `data/Processing/ICA/dict_EEG_ICA.bin` y `data/BIDS/electrodes/*.tsv`; salidas `data/Processing/ICA/dict_EEG_ICA_{clean,full}.bin`, `results/Processing/figures/ICA_cleaning/`, `results/Processing/tables/ICA_cleaning/`.
+- `src/Processing/segmentation.jl`: entrada `data/Processing/ICA/dict_EEG_ICA_clean.bin`; salida `data/Processing/segmentation/{eeg_segmented.bin,dict_segmentation_info.bin}`.
+- `src/Processing/baseline.jl`: entrada `data/Processing/segmentation/dict_segmentation_info.bin`; salida `data/Processing/baseline/{eeg_1st_baseline_correction.bin,dict_1st_baseline_correction.bin}`.
+- `src/Processing/artifact_rejection.jl`: entrada `data/Processing/baseline/dict_1st_baseline_correction.bin`; salida `data/Processing/artifact_rejection/{eeg_artifact_rejected.bin,dict_artifact_rejection.bin}`.
+- `src/Processing/baseline_2st.jl`: entrada `data/Processing/artifact_rejection/dict_artifact_rejection.bin`; salida `data/Processing/baseline/{eeg_2nd_baseline_correction.bin,dict_2nd_baseline_correction.bin}`.
+- `src/Spectral/FFT.jl`: entrada `data/Processing/baseline/dict_2nd_baseline_correction.bin`; salidas `data/Processing/FFT/{dict_FFT.bin,dict_FFT_power.bin}` y `results/Processing/{figures/FFT,tables/FFT}`.
+- `src/Connectivity/CSD.jl`: entradas `data/Processing/baseline/dict_2nd_baseline_correction.bin` y `data/BIDS/electrodes/*.tsv`; salidas `data/Connectivity/CSD/{eeg_csd.bin,dict_csd.bin}` y `results/Connectivity/{figures/CSD,tables/CSD,logs/CSD}`.
+- `src/Connectivity/wPLI.jl`: entradas `data/Connectivity/CSD/dict_csd.bin` y `data/Processing/FFT/dict_FFT_power.bin` (fallback `dict_FFT.bin`); salidas `data/Connectivity/wPLI/dict_wpli.bin` y `results/Connectivity/{figures/wPLI,tables/wPLI,logs/wPLI}`.
 
 ## Configuración
 
@@ -200,10 +239,10 @@ Además, `src/modules/paths.jl` proporciona utilidades para construir rutas sin 
 
 ## Datos de entrada
 
-- **EEG raw**: se espera un archivo TSV en `data/raw/` (ej. `sub-M05_ses-T2_task-eyesclosed_run-01_eeg_data.tsv`) con:
+- **EEG raw**: se espera un archivo TSV en `data/BIDS/raw/` (ej. `sub-M05_ses-T2_task-eyesclosed_run-01_eeg_data.tsv`) con:
   - Primera columna: nombres de canales (`Channel`)
   - Resto de columnas: muestras temporales (una columna por punto de tiempo), en µV
-- **Metadata** y **electrodos**: opcionales en `data/raw/` y `data/electrodes/` (p. ej. para CSD y visualizaciones).
+- **Metadata** y **electrodos**: opcionales en `data/BIDS/raw/` y `data/BIDS/electrodes/` (p. ej. para CSD y visualizaciones).
 
 Frecuencia de muestreo por defecto en el pipeline: **500 Hz**.
 

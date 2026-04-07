@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 # -*- coding: utf-8 -*- #shebang        
-# src/ICA_cleaning.jl
+# src/ICA/ICA_cleaning.jl
 
 # LIMPIEZA DE DATOS MEDIANTE ICA (ICA Cleaning)
 # =============================================
@@ -127,7 +127,7 @@ dict_EEG_Lowpass = let
     path_dict_lowpass_local = joinpath(dir_filtering_local, "dict_EEG_Lowpass.bin")
 
     if !isfile(path_dict_lowpass_local)
-        error("No se encontró $(abspath(path_dict_lowpass_local)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin.")
+        error("No se encontró $(abspath(path_dict_lowpass_local)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin (y src/Setup/IO.jl si parte desde cero).")
     end
 
     println("✓ Archivo: $(basename(path_dict_lowpass_local))\n")

@@ -20,7 +20,7 @@
   {
     "name": "ICA",
     "path": "Pluto/ICA/index.html",
-    "source": "Pluto/Processing/ICA.jl",
+    "source": "Pluto/ICA/ICA.jl",
     "published": true
   },
   {

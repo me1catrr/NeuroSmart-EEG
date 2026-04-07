@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 # -*- coding: utf-8 -*-
-# src/FFT.jl
+# src/Spectral/FFT.jl
 #
 # FAST FOURIER TRANSFORMATION (FFT)
 # ============================================

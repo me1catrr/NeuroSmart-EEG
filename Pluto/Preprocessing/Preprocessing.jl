@@ -131,7 +131,7 @@ begin
 dir_io = stage_dir(:IO)
 path_dict = joinpath(dir_io, "dict_EEG.bin")
 if !isfile(path_dict)
-    error("No se encontró $(abspath(path_dict)). Ejecuta antes src/Preprocessing/IO.jl para generar dict_EEG.bin.")
+    error("No se encontró $(abspath(path_dict)). Ejecuta antes src/Setup/IO.jl para generar dict_EEG.bin.")
 end
 dict_EEG = Serialization.deserialize(path_dict)
 

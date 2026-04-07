@@ -61,7 +61,7 @@ path_dict_lowpass = joinpath(dir_filtering, "dict_EEG_Lowpass.bin")
 
 # Verificamos que el resultado del filtrado esté disponible
 if !isfile(path_dict_lowpass)
-    error("No se encontró $(abspath(path_dict_lowpass)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin.")
+    error("No se encontró $(abspath(path_dict_lowpass)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin (y src/Setup/IO.jl si parte desde cero).")
 end
 
 # Cargar diccionario con señales por canal
@@ -768,7 +768,7 @@ dict_EEG_Lowpass = let
     path_dict_lowpass_local = joinpath(dir_filtering_local, "dict_EEG_Lowpass.bin")
 
     if !isfile(path_dict_lowpass_local)
-        error("No se encontró $(abspath(path_dict_lowpass_local)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin.")
+        error("No se encontró $(abspath(path_dict_lowpass_local)). Ejecuta antes src/Preprocessing/filtering.jl para generar dict_EEG_Lowpass.bin (y src/Setup/IO.jl si parte desde cero).")
     end
 
     println("✓ Archivo: $(basename(path_dict_lowpass_local))\n")
