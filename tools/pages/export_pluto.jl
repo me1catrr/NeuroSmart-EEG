@@ -47,6 +47,13 @@ function export_module(root::String, module_name::String)
 
     mkpath(output_dir)
     PlutoSliderServer.export_notebook(notebook_abs; Export_output_dir=output_dir)
+
+    # Limpia index legacy para mantener solo <Notebook>.html en staging.
+    legacy_index = joinpath(output_dir, "index.html")
+    if isfile(legacy_index)
+        rm(legacy_index; force=true)
+    end
+
     return output_dir
 end
 

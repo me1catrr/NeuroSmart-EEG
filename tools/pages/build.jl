@@ -245,7 +245,7 @@ function incomplete_export_html(module_name::String, source_path::String, missin
     <article class="card">
       <h1>Modulo $(module_name)</h1>
       <p><strong>La exportacion HTML existe, pero esta incompleta.</strong></p>
-      <p>Faltan recursos locales requeridos por <code>index.html</code>:</p>
+      <p>Faltan recursos locales requeridos por el HTML exportado del modulo:</p>
       <ul>
         $(missing_list)
       </ul>
