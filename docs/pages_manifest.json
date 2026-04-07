@@ -40,5 +40,11 @@
     "path": "Pluto/Connectivity/index.html",
     "source": "Pluto/Connectivity/Connectivity.jl",
     "published": true
+  },
+  {
+    "name": "Surrogate",
+    "path": "Pluto/Surrogate/index.html",
+    "source": "Pluto/Surrogate/Surrogate.jl",
+    "published": true
   }
 ]

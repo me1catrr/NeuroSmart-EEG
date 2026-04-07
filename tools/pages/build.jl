@@ -56,6 +56,12 @@ const MODULES = [
         target = "docs/Pluto/Connectivity/index.html",
         description = "Analisis de conectividad funcional en EEG",
     ),
+    (
+        name = "Surrogate",
+        source = "Pluto/Surrogate/Surrogate.jl",
+        target = "docs/Pluto/Surrogate/index.html",
+        description = "Modelo surrogate para significacion estadistica de conectividad",
+    ),
 ]
 
 function project_root()::String
