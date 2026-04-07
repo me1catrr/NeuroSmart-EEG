@@ -54,6 +54,12 @@ using DSP               # Procesamiento de señales digitales (filtros)
 # Importación selectiva de CairoMakie para evitar ambigüedades con otros módulos
 using CairoMakie: Figure, Axis, heatmap!, Colorbar, save
 
+# Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
+# cargamos utilidades de rutas para disponer de `stage_dir`.
+if !@isdefined(stage_dir)
+    include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+end
+
 # ------------------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE RUTAS
 # ------------------------------------------------------------------------------------

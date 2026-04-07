@@ -49,6 +49,12 @@ using LinearAlgebra     # Operaciones de álgebra lineal (matrices, identidad)
 using CairoMakie: Figure, Axis, scatter!, lines!, text!, Colorbar, barplot!,
                   heatmap!, contour!, axislegend, save, hidespines!, hidedecorations!
 
+# Si se ejecuta este script directamente (fuera del módulo EEG_Julia),
+# cargamos utilidades de rutas para disponer de `stage_dir` y `electrodes_dir`.
+if !@isdefined(stage_dir) || !@isdefined(electrodes_dir)
+    include(joinpath(@__DIR__, "..", "modules", "paths.jl"))
+end
+
 # ------------------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE RUTAS
 # ------------------------------------------------------------------------------------

@@ -552,6 +552,86 @@ md"""
        - ausencia de `NaN` o `Inf`
 """
 
+# ╔═╡ 1f5d8a1b-2e93-4f11-88a7-26c7f26cdaf4
+md"""
+## Ejecución práctica del pipeline (orden establecido)
+
+En esta sección se ejecutan las etapas en el mismo orden definido en el pipeline:
+
+1. `CSD.jl` (reducción de conducción de volumen y generación de QC/figuras).
+2. `wPLI.jl` (conectividad por bandas y generación de matrices/tablas/heatmaps).
+
+El bloque se ejecuta bajo demanda para evitar recalcular cada vez que se abre el notebook.
+"""
+
+# ╔═╡ e67326fa-6b6d-4ef0-b6dc-6439504b84d8
+@bind run_connectivity_pipeline PlutoUI.CheckBox(default=false)
+
+# ╔═╡ 3d6d2b7a-d5f1-4f18-89de-5de3494d5cda
+md"""
+`run_connectivity_pipeline` = **$(run_connectivity_pipeline ? "true" : "false")**
+
+- Cambia a `true` para lanzar `CSD.jl` y `wPLI.jl`.
+- Si ya tienes resultados generados, puedes dejarlo en `false` y revisar las salidas.
+"""
+
+# ╔═╡ d1f6d3ce-3d62-4ccf-a3d2-b79bead2c7ef
+begin
+    connectivity_run_status = "Pipeline no ejecutado en esta sesión."
+
+    if run_connectivity_pipeline
+        csd_script = joinpath(@__DIR__, "..", "..", "src", "Connectivity", "CSD.jl")
+        wpli_script = joinpath(@__DIR__, "..", "..", "src", "Connectivity", "wPLI.jl")
+
+        @assert isfile(csd_script) "No se encontró CSD.jl en $csd_script"
+        @assert isfile(wpli_script) "No se encontró wPLI.jl en $wpli_script"
+
+        # Orden obligatorio del pipeline de conectividad:
+        # 1) CSD (genera dict_csd.bin y QC) -> 2) wPLI (consume CSD y genera conectividad)
+        include(csd_script)
+        include(wpli_script)
+
+        connectivity_run_status = "Pipeline ejecutado correctamente (CSD → wPLI)."
+    end
+
+    connectivity_run_status
+end
+
+# ╔═╡ a6b1ff2b-2ef5-4f8d-b867-630850027e9e
+begin
+    dir_csd_data = stage_dir(:CSD)
+    dir_wpli_data = stage_dir(:wPLI)
+    dir_csd_fig = stage_dir(:CSD; kind = :figures)
+    dir_wpli_fig = stage_dir(:wPLI; kind = :figures)
+    dir_wpli_tables = stage_dir(:wPLI; kind = :tables)
+
+    files_csd_fig = isdir(dir_csd_fig) ? sort(readdir(dir_csd_fig)) : String[]
+    files_wpli_fig = isdir(dir_wpli_fig) ? sort(readdir(dir_wpli_fig)) : String[]
+    files_wpli_tables = isdir(dir_wpli_tables) ? sort(readdir(dir_wpli_tables)) : String[]
+
+    (
+        status = connectivity_run_status,
+        csd_data_dir = dir_csd_data,
+        wpli_data_dir = dir_wpli_data,
+        n_csd_figures = length(files_csd_fig),
+        n_wpli_figures = length(files_wpli_fig),
+        n_wpli_tables = length(files_wpli_tables),
+        csd_figures = files_csd_fig,
+        wpli_figures = files_wpli_fig,
+        wpli_tables = files_wpli_tables,
+    )
+end
+
+# ╔═╡ f2ec8a48-42d1-4c4a-8e9d-6f3fc3b1793f
+begin
+    matrix_candidates = filter(f -> occursin(r"^wPLI_.*_matrix\.csv$", f), readdir(stage_dir(:wPLI; kind = :tables)))
+    if isempty(matrix_candidates)
+        DataFrame(Info = ["No hay matrices wPLI disponibles todavía."])
+    else
+        CSV.read(joinpath(stage_dir(:wPLI; kind = :tables), first(sort(matrix_candidates))), DataFrame)
+    end
+end
+
 # ╔═╡ c970cf66-ae42-403f-aec5-82f6dbb63068
 md"""
 Notebook por fase extraido de `Pluto/Notebook.jl`, centrado en:
@@ -2035,6 +2115,12 @@ version = "1.13.0+0"
 # ╠═9e76ae6b-1f42-4a54-a040-c859995df9fc
 # ╠═4d6d3dcd-0292-41e5-800d-5eb52d13b8c8
 # ╠═5a67824c-4e62-45c4-83ad-54bcdbcc3acb
+# ╟─1f5d8a1b-2e93-4f11-88a7-26c7f26cdaf4
+# ╠═e67326fa-6b6d-4ef0-b6dc-6439504b84d8
+# ╟─3d6d2b7a-d5f1-4f18-89de-5de3494d5cda
+# ╠═d1f6d3ce-3d62-4ccf-a3d2-b79bead2c7ef
+# ╠═a6b1ff2b-2ef5-4f8d-b867-630850027e9e
+# ╠═f2ec8a48-42d1-4c4a-8e9d-6f3fc3b1793f
 # ╟─c970cf66-ae42-403f-aec5-82f6dbb63068
 # ╟─f64af7c4-6a3c-4efc-a30a-6cbd9120be43
 # ╟─00000000-0000-0000-0000-000000000001
