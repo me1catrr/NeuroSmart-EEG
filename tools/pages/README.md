@@ -6,7 +6,7 @@ Guia principal y unica del flujo de publicacion web para este repositorio Julia 
 
 - GitHub Pages publica desde `main:/docs`.
 - Portada: `docs/index.html`.
-- Modulos HTML: `docs/Pluto/<Modulo>/index.html`.
+- Modulos HTML: `docs/Pluto/<Modulo>/<Notebook>.html`.
 
 ## Que NO se publica
 
@@ -18,7 +18,7 @@ Guia principal y unica del flujo de publicacion web para este repositorio Julia 
 
 - Fuente cientifica: `Pluto/<Modulo>/<Modulo>.jl`
 - Staging de HTML exportado manualmente: `exports/Pluto/<Modulo>/` (carpeta completa)
-- Destino publicado en Pages: `docs/Pluto/<Modulo>/index.html`
+- Destino publicado en Pages: `docs/Pluto/<Modulo>/<Notebook>.html`
 
 ## Scripts
 
@@ -39,7 +39,7 @@ Guia principal y unica del flujo de publicacion web para este repositorio Julia 
 
 - `tools/pages/export_pluto.jl`
   - Exporta notebooks Pluto a HTML estatico sin usar la web.
-  - Salida: `exports/Pluto/<Modulo>/index.html` (+ assets).
+  - Salida: `exports/Pluto/<Modulo>/<Notebook>.html` (+ assets).
   - Si no indicas modulos, exporta todos.
 
 ## Comandos

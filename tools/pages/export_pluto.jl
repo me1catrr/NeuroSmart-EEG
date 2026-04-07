@@ -50,6 +50,10 @@ function export_module(root::String, module_name::String)
     return output_dir
 end
 
+function exported_html_name(module_name::String)::String
+    return replace(basename(MODULE_NOTEBOOK[module_name]), ".jl" => ".html")
+end
+
 function main()
     root = project_root()
     Pkg.activate(root)
@@ -62,7 +66,7 @@ function main()
     for m in modules
         println("\n→ Exportando $m")
         out = export_module(root, m)
-        println("  ✓ OK: $out/index.html")
+        println("  ✓ OK: $out/$(exported_html_name(m))")
     end
 
     println("\nListo. Siguiente paso:")

@@ -3,9 +3,9 @@
 # Construye contenido de GitHub Pages desde exportaciones HTML de Pluto.
 #
 # Flujo:
-#   - Fuente cientifica: Pluto/<Modulo>/<Modulo>.jl
-#   - Staging HTML manual: exports/Pluto/<Modulo>/index.html
-#   - Publicacion web: docs/Pluto/<Modulo>/index.html
+#   - Fuente cientifica: Pluto/<Modulo>/<Notebook>.jl
+#   - Staging HTML manual: exports/Pluto/<Modulo>/<Notebook>.html
+#   - Publicacion web: docs/Pluto/<Modulo>/<Notebook>.html
 #
 # Uso:
 #   julia tools/pages/build.jl
@@ -17,49 +17,49 @@ const MODULES = [
     (
         name = "Setup",
         source = "Pluto/Setup/Project_Setup.jl",
-        target = "docs/Pluto/Setup/index.html",
+        target = "docs/Pluto/Setup/Project_Setup.html",
         description = "Configuracion general y contexto del proyecto",
     ),
     (
         name = "BIDS",
         source = "Pluto/BIDS/BIDS.jl",
-        target = "docs/Pluto/BIDS/index.html",
+        target = "docs/Pluto/BIDS/BIDS.html",
         description = "Estandarizacion BIDS para datasets EEG",
     ),
     (
         name = "Preprocessing",
         source = "Pluto/Preprocessing/Preprocessing.jl",
-        target = "docs/Pluto/Preprocessing/index.html",
+        target = "docs/Pluto/Preprocessing/Preprocessing.html",
         description = "Limpieza y preparacion de senales EEG",
     ),
     (
         name = "ICA",
         source = "Pluto/ICA/ICA.jl",
-        target = "docs/Pluto/ICA/index.html",
+        target = "docs/Pluto/ICA/ICA.html",
         description = "Separacion de componentes independientes para limpieza EEG",
     ),
     (
         name = "Processing",
         source = "Pluto/Processing/Processing.jl",
-        target = "docs/Pluto/Processing/index.html",
+        target = "docs/Pluto/Processing/Processing.html",
         description = "Extraccion y analisis de caracteristicas",
     ),
     (
         name = "Spectral",
         source = "Pluto/Spectral/Spectral.jl",
-        target = "docs/Pluto/Spectral/index.html",
+        target = "docs/Pluto/Spectral/Spectral.html",
         description = "Analisis espectral y dinamica en frecuencia para EEG",
     ),
     (
         name = "Connectivity",
         source = "Pluto/Connectivity/Connectivity.jl",
-        target = "docs/Pluto/Connectivity/index.html",
+        target = "docs/Pluto/Connectivity/Connectivity.html",
         description = "Analisis de conectividad funcional en EEG",
     ),
     (
         name = "Surrogate",
         source = "Pluto/Surrogate/Surrogate.jl",
-        target = "docs/Pluto/Surrogate/index.html",
+        target = "docs/Pluto/Surrogate/Surrogate.html",
         description = "Modelo surrogate para significacion estadistica de conectividad",
     ),
 ]
@@ -83,6 +83,10 @@ function json_escape(value::String)::String
     escaped = replace(escaped, "\r" => "\\r")
     escaped = replace(escaped, "\t" => "\\t")
     return escaped
+end
+
+function html_name_from_source(source_path::String)::String
+    return replace(basename(source_path), ".jl" => ".html")
 end
 
 function placeholder_html(module_name::String, source_path::String)::String
@@ -200,7 +204,7 @@ function placeholder_html(module_name::String, source_path::String)::String
       <p>
         Exporta el notebook desde Pluto.jl y coloca el archivo en:
       </p>
-      <div class="source">exports/Pluto/$(module_name)/index.html</div>
+      <div class="source">exports/Pluto/$(module_name)/$(html_name_from_source(source_path))</div>
       <p>Notebook fuente:</p>
       <div class="source">$(source_path)</div>
       <div class="actions">
@@ -260,8 +264,8 @@ function default_exports_dir(root::String)::String
     return joinpath(root, "exports", "Pluto")
 end
 
-function staged_export_path(exports_pluto_dir::String, module_name::String)::String
-    return joinpath(exports_pluto_dir, module_name, "index.html")
+function staged_export_path(exports_pluto_dir::String, module_name::String, source_path::String)::String
+    return joinpath(exports_pluto_dir, module_name, html_name_from_source(source_path))
 end
 
 function staged_export_dir(exports_pluto_dir::String, module_name::String)::String
@@ -366,7 +370,7 @@ function main()
 
     for mod in MODULES
         target_html_abs = joinpath(root, mod.target)
-        staged_html_abs = staged_export_path(exports_pluto_dir, mod.name)
+        staged_html_abs = staged_export_path(exports_pluto_dir, mod.name, mod.source)
         staged_dir_abs = staged_export_dir(exports_pluto_dir, mod.name)
         target_dir_abs = dirname(target_html_abs)
 
@@ -377,6 +381,11 @@ function main()
 
             if isempty(missing_assets)
                 copy_dir_replace(staged_dir_abs, target_dir_abs)
+                # Preferimos el HTML nominal del notebook y limpiamos index legacy.
+                legacy_index = joinpath(target_dir_abs, "index.html")
+                if isfile(legacy_index)
+                    rm(legacy_index; force=true)
+                end
                 published_real = true
             else
                 println("Aviso: exportacion incompleta para ", mod.name, " (faltan assets).")
