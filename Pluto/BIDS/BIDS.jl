@@ -23,7 +23,7 @@ begin
 end
 
 # ╔═╡ 6a3f59f9-df9d-44a6-9a0e-bbc5a87d9057
-notebook_intro("EEG y BIDS")
+notebook_intro("EEG-BIDS-RAW DATA")
 
 # ╔═╡ 0f14b248-b15f-4fa4-b2f0-ff5f6609d66a
 md"""
