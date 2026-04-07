@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.21
+# v0.20.23
 
 using Markdown
 using InteractiveUtils
@@ -30,6 +30,9 @@ end
 md"""
 **PAQUETES CARGADOS**
 """
+
+# ╔═╡ 8a0cde3b-88ab-4b56-bef6-8b9a394b1c2e
+notebook_intro("Independent Component Analysis (ICA)")
 
 # ╔═╡ 177911fa-6acc-4cd5-b862-81fa0fef1daa
 begin
@@ -84,12 +87,9 @@ println("✓ Canales (ordenados): $(join(channels, ", "))")
 println()
 end
 
-# ╔═╡ c8aaf8df-4f1b-4c07-84fd-8a5eb18ab0a7
-notebook_intro("PROCESSING")
-
 # ╔═╡ 01b14950-89b8-4df1-981f-44a13f6026cb
 md"""
-# ICA
+# Algoritmo ICA
 
 Después del preprocesamiento (**Fase 1**), el **EEG filtrado** se descompone en **componentes estadísticamente independientes** para separar la actividad neuronal de artefactos típicos (oculares, musculares y ruido de línea).
 
@@ -3804,11 +3804,11 @@ version = "1.13.0+0"
 # ╔═╡ Cell order:
 # ╠═7a5d6ddb-33a3-422a-88a4-f76fc8f0c620
 # ╠═2ff7ee54-7bec-4e21-b804-e9fcc2f86a11
+# ╠═8a0cde3b-88ab-4b56-bef6-8b9a394b1c2e
 # ╠═49ca7fca-11dc-4f81-b74f-b54e8b252e10
 # ╠═789269a7-1c3a-41a2-811c-c5b8e08ee1f3
 # ╠═177911fa-6acc-4cd5-b862-81fa0fef1daa
 # ╠═c5f19470-bda8-4420-b7f4-c3a1c94b4753
-# ╟─c8aaf8df-4f1b-4c07-84fd-8a5eb18ab0a7
 # ╠═01b14950-89b8-4df1-981f-44a13f6026cb
 # ╠═09a79ac1-4430-4729-bca5-5425a2ba330e
 # ╠═7523a05e-bb9e-48bc-9720-9a6178941273
